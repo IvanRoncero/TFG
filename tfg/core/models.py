@@ -1,4 +1,3 @@
-# tfg/core/models.py
 from __future__ import annotations
 
 import hashlib
@@ -9,21 +8,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from .enums import (
-    EsquemaCifrado,
-    Estado,
-    Modo,
-    TipoCanal,
-    TipoRecurso,
-)
+from .enums import EsquemaCifrado, Estado, Modo, TipoCanal, TipoRecurso
 from .errors import AccesoRecursoError, EstadoInvalido, ValidacionError
-
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-# -------------------------- ENTIDADES -------------------------- #
 
 @dataclass
 class Transferencia:
@@ -38,7 +27,6 @@ class Transferencia:
     reintentos: int = 0
     error: str = ""
 
-    # Relaciones (referencias por id/objeto, opcionales para M1)
     canal: Optional["Canal"] = None
     endpointOrigen: Optional["Endpoint"] = None
     endpointDestino: Optional["Endpoint"] = None
@@ -51,7 +39,6 @@ class Transferencia:
         if self.estado not in permitido:
             raise EstadoInvalido(f"Estado {self.estado} no permite esta operación")
 
-    # Operaciones (análisis)
     def iniciar(self) -> None:
         self._assert_estado({Estado.PENDIENTE})
         self.estado = Estado.EN_PROGRESO
@@ -67,11 +54,6 @@ class Transferencia:
 
     def calcularProgreso(self, total_esperado_bytes: Optional[int] = None,
                          total_esperado_fragmentos: Optional[int] = None) -> float:
-        """
-        Devuelve % de progreso en [0,100].
-        - Si se conoce total_esperado_bytes, prioriza bytes.
-        - Si no, intenta con num. de fragmentos si se indica total_esperado_fragmentos.
-        """
         if total_esperado_bytes and total_esperado_bytes > 0:
             return min(100.0, 100.0 * (self.bytesTotales / total_esperado_bytes))
         if total_esperado_fragmentos and total_esperado_fragmentos > 0:
@@ -97,7 +79,6 @@ class Transferencia:
         self.fin = _now()
         self.actualizadoEn = self.fin
 
-
 @dataclass
 class Fragmento:
     id: str
@@ -105,12 +86,10 @@ class Fragmento:
     tam: int
     hashParcial: str = ""
     recibidoEnviadoEn: Optional[datetime] = None
-    rutaAlmacen: str = ""      # si se persiste a disco
-    payloadCifrado: bytes = b""  # o si se mantiene en memoria
+    rutaAlmacen: str = ""
+    payloadCifrado: bytes = b""
 
-    # Operaciones (análisis)
     def obtenerHuella(self) -> str:
-        """Calcula o devuelve el hashParcial (SHA-256 del contenido/ruta)."""
         if self.hashParcial:
             return self.hashParcial
         h = hashlib.sha256()
@@ -121,14 +100,12 @@ class Fragmento:
                 for chunk in iter(lambda: f.read(8192), b""):
                     h.update(chunk)
         else:
-            # No hay datos; devuelve huella de metadatos mínimos.
             h.update(f"{self.id}:{self.indice}:{self.tam}".encode("utf-8"))
         self.hashParcial = h.hexdigest()
         return self.hashParcial
 
     def marcarRecibido(self) -> None:
         self.recibidoEnviadoEn = _now()
-
 
 @dataclass
 class Canal:
@@ -139,19 +116,15 @@ class Canal:
     parametros: dict[str, Any] = field(default_factory=dict)
 
     def validarConfiguracion(self) -> None:
-        """Validación mínima genérica; reglas específicas se ampliarán en capas superiores."""
         if not isinstance(self.parametros, dict):
-            raise ValidacionError("parametros debe ser un dict (se serializa a JSON)")
-        # Ejemplo de claves mínimas útiles
+            raise ValidacionError("parametros debe ser un dict")
         if self.tipo in {TipoCanal.HTTP, TipoCanal.SSH, TipoCanal.FTP, TipoCanal.SMTP}:
-            # Para canales con destino remoto suele ser útil host/puerto/ruta
             for k in ("host", "puerto"):
                 if k not in self.parametros:
                     raise ValidacionError(f"Falta clave requerida en parametros: {k}")
 
     def descripcion(self) -> str:
         return f"{self.tipo.name}::{self.nombre} metodo={self.metodo} cfg={json.dumps(self.parametros, ensure_ascii=False)}"
-
 
 @dataclass
 class Endpoint:
@@ -167,7 +140,6 @@ class Endpoint:
             raise ValidacionError("Endpoint.host es obligatorio")
 
     def esSeguro(self) -> bool:
-        """Heurística simple: puertos típicamente seguros o rutas TLS."""
         return (self.puerto in {443, 22, 465, 993}) or self.ruta.startswith("https://")
 
     def describe(self) -> str:
@@ -175,12 +147,11 @@ class Endpoint:
         r = self.ruta if self.ruta else ""
         return f"{self.host}{p}{('/' + r) if r and not r.startswith('/') else r}"
 
-
 @dataclass
 class Credencial:
     id: str
     usuario: str | None = None
-    secreto: str | None = None  # almacenar cifrado/gestionado fuera de M1
+    secreto: str | None = None
     token: str | None = None
     scope: str | None = None
     ultimaVezUsado: Optional[datetime] = None
@@ -195,10 +166,8 @@ class Credencial:
     def esValidaPara(self, endpoint: Endpoint) -> bool:
         return bool(endpoint and endpoint.host)
 
-
 @dataclass
 class PoliticaCifrado:
-    """Política fusionada con material de clave (según análisis)."""
     id: str
     esquema: EsquemaCifrado
     algoritmo: str
@@ -209,12 +178,10 @@ class PoliticaCifrado:
         return self.esquema != EsquemaCifrado.NINGUNO
 
     def esCompatibleCon(self, canal: Canal) -> bool:
-        # Validación básica: permitir todo en M1; reglas finas en Validador (M3).
         return True
 
     def aplicarA(self, transferencia: Transferencia) -> None:
         transferencia.politicaCifrado = self
-
 
 @dataclass
 class PerfilRitmo:
@@ -223,13 +190,11 @@ class PerfilRitmo:
     dispersionMs: int = 0
 
     def proximaEspera(self) -> float:
-        """Devuelve segundos a esperar: base ± dispersión (uniforme)."""
         base = float(self.tiempoBaseMs) / 1000.0
         disp = float(self.dispersionMs) / 1000.0
         if disp <= 0:
             return base
         return max(0.0, base + random.uniform(-disp, disp))
-
 
 @dataclass
 class RecursoDatos:
@@ -240,7 +205,6 @@ class RecursoDatos:
     hash: str | None = None
 
     def calcularHash(self) -> str:
-        """Calcula hash SHA-256 del recurso si es accesible (ARCHIVO) o de su ubicación como fallback."""
         if self.tipo == TipoRecurso.ARCHIVO and os.path.exists(self.ubicacion):
             h = hashlib.sha256()
             with open(self.ubicacion, "rb") as f:
@@ -249,7 +213,6 @@ class RecursoDatos:
             self.hash = h.hexdigest()
             self.tam = os.path.getsize(self.ubicacion)
             return self.hash
-        # Fallback determinista para MEMORIA/URL (M1)
         self.hash = hashlib.sha256(self.ubicacion.encode("utf-8")).hexdigest()
         return self.hash
 
@@ -257,9 +220,7 @@ class RecursoDatos:
         if self.tipo == TipoRecurso.ARCHIVO:
             return os.path.isfile(self.ubicacion)
         if self.tipo == TipoRecurso.MEMORIA:
-            # Convención simple M1: ubicaciones de memoria con prefijo "mem://"
             return self.ubicacion.startswith("mem://")
         if self.tipo == TipoRecurso.URL:
-            # En M1 no hacemos I/O; comprobación básica de esquema.
             return self.ubicacion.startswith(("http://", "https://"))
         return False
