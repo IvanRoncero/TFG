@@ -1,75 +1,69 @@
 from __future__ import annotations
-import importlib.util
-import inspect
-import os
-from dataclasses import dataclass
-from typing import Dict, Tuple, Type, Any
+import importlib.util, sys, os, inspect, pathlib
+from typing import Dict, Tuple
 
 from .api import ExfilClientPlugin, ExfilServerPlugin
-from .errors import PluginNotFound, PluginLoadError
+from .api_crypto import CryptoEncryptPlugin, CryptoDecryptPlugin
 
-Key = Tuple[str, int, str]  # (canal, metodo, rol)
+class _Registry:
+    def __init__(self) -> None:
+        self.exfil_client: Dict[Tuple[str,int], type] = {}
+        self.exfil_server: Dict[Tuple[str,int], type] = {}
+        self.crypto_enc: Dict[Tuple[str,str], type] = {}
+        self.crypto_dec: Dict[Tuple[str,str], type] = {}
 
-@dataclass
-class Registry:
-    clients: Dict[Key, ExfilClientPlugin]
-    servers: Dict[Key, ExfilServerPlugin]
+    def register_module(self, module) -> None:
+        for _, cls in inspect.getmembers(module, inspect.isclass):
+            if issubclass(cls, ExfilClientPlugin) and cls is not ExfilClientPlugin and getattr(cls, "name", ""):
+                self.exfil_client[(str(getattr(cls, "canal","")).upper(), int(getattr(cls,"metodo",0)))] = cls
+            elif issubclass(cls, ExfilServerPlugin) and cls is not ExfilServerPlugin and getattr(cls, "name", ""):
+                self.exfil_server[(str(getattr(cls, "canal","")).upper(), int(getattr(cls,"metodo",0)))] = cls
+            elif issubclass(cls, CryptoEncryptPlugin) and cls is not CryptoEncryptPlugin and getattr(cls, "name", ""):
+                self.crypto_enc[(str(getattr(cls, "esquema","")).upper(), str(getattr(cls,"algoritmo","")).upper())] = cls
+            elif issubclass(cls, CryptoDecryptPlugin) and cls is not CryptoDecryptPlugin and getattr(cls, "name", ""):
+                self.crypto_dec[(str(getattr(cls, "esquema","")).upper(), str(getattr(cls,"algoritmo","")).upper())] = cls
 
-def _safe_import(py_path: str):
-    """Importa un .py arbitrario sin añadirlo al sys.path global."""
-    mod_name = "plugin_" + os.path.splitext(os.path.basename(py_path))[0]
-    spec = importlib.util.spec_from_file_location(mod_name, py_path)
-    if spec is None or spec.loader is None:
-        raise PluginLoadError(f"No se pudo crear spec para {py_path}")
-    mod = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(mod)  # type: ignore[attr-defined]
-    except Exception as ex:
-        raise PluginLoadError(f"Error importando {py_path}: {ex}")
-    return mod
+    def load_path(self, path: str) -> None:
+        p = pathlib.Path(path)
+        if p.is_dir():
+            for f in p.rglob("*.py"):
+                self._load_file(str(f))
+        elif p.is_file() and path.endswith(".py"):
+            self._load_file(path)
 
-def _find_plugin_classes(mod):
-    client_classes = []
-    server_classes = []
-    for _, obj in inspect.getmembers(mod, inspect.isclass):
-        if issubclass(obj, ExfilClientPlugin) and obj is not ExfilClientPlugin:
-            client_classes.append(obj)
-        if issubclass(obj, ExfilServerPlugin) and obj is not ExfilServerPlugin:
-            server_classes.append(obj)
-    return client_classes, server_classes
+    def _load_file(self, fp: str) -> None:
+        mod_name = "tfg_plugins_" + os.path.basename(fp).replace(".py","")
+        spec = importlib.util.spec_from_file_location(mod_name, fp)
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = mod
+            spec.loader.exec_module(mod)  # type: ignore
+            self.register_module(mod)
 
-def build_registry(base_dir: str) -> Registry:
-    base_dir = base_dir or "plugins"
-    clients: Dict[Key, ExfilClientPlugin] = {}
-    servers: Dict[Key, ExfilServerPlugin] = {}
-    if not os.path.isdir(base_dir):
-        return Registry(clients=clients, servers=servers)
+    def resolve_exfil(self, canal: str, metodo: int, rol: str):
+        key = (canal.upper(), int(metodo))
+        return (self.exfil_client if rol=='client' else self.exfil_server).get(key)
 
-    for root, _, files in os.walk(base_dir):
-        for f in files:
-            if not f.endswith(".py"):
-                continue
-            py_path = os.path.join(root, f)
-            mod = _safe_import(py_path)
-            clzs_c, clzs_s = _find_plugin_classes(mod)
+    def resolve_crypto(self, esquema: str, algoritmo: str, rol: str):
+        key = (esquema.upper(), algoritmo.upper())
+        return (self.crypto_enc if rol=='encrypt' else self.crypto_dec).get(key)
 
-            for cls in clzs_c:
-                inst: ExfilClientPlugin = cls()  # type: ignore[call-arg]
-                key: Key = (inst.canal.upper(), int(inst.metodo), "client")
-                clients[key] = inst
-            for cls in clzs_s:
-                inst: ExfilServerPlugin = cls()  # type: ignore[call-arg]
-                key: Key = (inst.canal.upper(), int(inst.metodo), "server")
-                servers[key] = inst
-    return Registry(clients=clients, servers=servers)
+def scan_plugins(plugins_dir: str) -> _Registry:
+    reg = _Registry()
+    if plugins_dir and os.path.exists(plugins_dir):
+        reg.load_path(plugins_dir)
+    return reg
 
-def resolve_exfil_plugin(base_dir: str, canal: str, metodo: int, rol: str):
-    reg = build_registry(base_dir)
-    key: Key = (canal.upper(), int(metodo), rol.lower())
-    if rol.lower() == "client":
-        if key in reg.clients:
-            return reg.clients[key]
-    else:
-        if key in reg.servers:
-            return reg.servers[key]
-    raise PluginNotFound(f"No hay plugin para canal={canal} metodo={metodo} rol={rol} en {base_dir}")
+def resolve_exfil_plugin(canal, metodo: int, rol: str, plugins_dir: str):
+    reg = scan_plugins(plugins_dir)
+    cls = reg.resolve_exfil(str(canal), metodo, rol)
+    if not cls:
+        raise RuntimeError(f"No se encontró plugin EXFIL para canal={canal}, metodo={metodo}, rol={rol}")
+    return cls()
+
+def resolve_crypto_plugin(esquema, algoritmo: str, rol: str, plugins_dir: str):
+    reg = scan_plugins(plugins_dir)
+    cls = reg.resolve_crypto(str(esquema), algoritmo, rol)
+    if not cls:
+        raise RuntimeError(f"No se encontró plugin CRYPTO para esquema={esquema}, algoritmo={algoritmo}, rol={rol}")
+    return cls()

@@ -13,20 +13,20 @@ class Estado(str, Enum):
     CANCELADA = "cancelada"
 
 class TipoCanal(str, Enum):
-    HTTP = "HTTP"
     TCP = "TCP"
     ICMP = "ICMP"
+    HTTP = "HTTP"
     SSH = "SSH"
     FTP = "FTP"
     DNS = "DNS"
     SMTP = "SMTP"
 
 class EsquemaCifrado(str, Enum):
-    NINGUNO = "NINGUNO"
     SIMETRICO = "SIMETRICO"
     ASIMETRICO = "ASIMETRICO"
+    NINGUNO = "NINGUNO"
 
 class TipoRecurso(str, Enum):
-    ARCHIVO = "ARCHIVO"
-    MEMORIA = "MEMORIA"
-    URL = "URL"
+    ARCHIVO = "archivo"
+    MEMORIA = "memoria"
+    URL = "url"

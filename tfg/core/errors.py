@@ -1,11 +1,5 @@
-class DomainError(Exception):
-    pass
-
-class EstadoInvalido(DomainError):
-    pass
-
-class ValidacionError(DomainError):
-    pass
-
-class AccesoRecursoError(DomainError):
-    pass
+class TfgError(Exception): ...
+class RecursoNoAccesible(TfgError): ...
+class PluginNoEncontrado(TfgError): ...
+class ValidacionError(TfgError): ...
+class EstadoInvalido(TfgError): ...
