@@ -16,9 +16,10 @@ class HttpServerHeaders(ExfilServerPlugin):
         bind_port = int(config.get("bind_port") or 8080)
         path = config.get("path") or "/upload"
         exfil_id = config.get("exfil_id") or "default"
+        auth_token = config.get("auth_token")
 
         store = _Store()
-        Handler = _make_handler_headers(store, path)
+        Handler = _make_handler_headers(store, path, auth_token)
         httpd = ThreadingHTTPServer((bind_host, bind_port), Handler)
         th = threading.Thread(target=httpd.serve_forever, daemon=True); th.start()
 

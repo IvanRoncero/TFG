@@ -50,13 +50,27 @@ def _maybe_http_cfg(canal, args, modo: str):
         portpart = f":{port}" if (port and port not in (80,443)) else ("" if port in (80,443) else "")
         path = ruta if (isinstance(ruta,str) and ruta.startswith("/")) else f"/{ruta}" if ruta else "/upload"
         url = f"{scheme}://{hostpart}{portpart}{path}"
+    base = {}
     if modo == "send":
-        return {"url": url}
+        base = {"url": url}
     else:
         bind_host = host or "0.0.0.0"
         bind_port = port or (443 if url.startswith("https://") else 8080)
         path = ruta if (isinstance(ruta,str) and ruta.startswith("/")) else f"/{ruta}" if ruta else "/upload"
-        return {"bind_host": bind_host, "bind_port": bind_port, "path": path}
+        base = {"bind_host": bind_host, "bind_port": bind_port, "path": path}
+    if getattr(args, "auth_token", None):
+        base["auth_token"] = args.auth_token
+    if getattr(args, "resume_probe", False):
+        base["resume_probe"] = True
+    if getattr(args, "retries", None) is not None:
+        base["retries"] = int(args.retries)
+    if getattr(args, "retry_backoff_ms", None) is not None:
+        base["retry_backoff_ms"] = int(args.retry_backoff_ms)
+    if getattr(args, "ritmo_base_ms", None) is not None:
+        base["ritmo_base_ms"] = int(args.ritmo_base_ms)
+    if getattr(args, "ritmo_dispersion_ms", None) is not None:
+        base["ritmo_dispersion_ms"] = int(args.ritmo_dispersion_ms)
+    return base
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="tfg_cli", description="TFG: exfil modular con plugins")
@@ -82,6 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
         "algoritmo": {"required": False, "help": "SIMETRICO: AESGCM | ASIMETRICO: RSA_OAEP"},
         "clave-publica": {"required": False},
         "clave-privada": {"required": False},
+        "auth-token": {"required": False, "help": "Token compartido para autenticar contra el receptor (X-Auth-Token)"},
     }
 
     sp = sub.add_parser("send", help="Enviar recurso")
@@ -91,6 +106,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--recurso-ubicacion", required=True)
     sp.add_argument("--fragment-size", type=int, default=1024)
     sp.add_argument("--crypto-meta-out", required=False, help="Ruta donde guardar meta CRYPTO (JSON)")
+    # Robustez
+    sp.add_argument("--retries", type=int, default=3, help="Reintentos por fragmento")
+    sp.add_argument("--retry-backoff-ms", type=int, default=250, help="Backoff exponencial base")
+    sp.add_argument("--ritmo-base-ms", type=int, default=0, help="Espera base entre fragmentos")
+    sp.add_argument("--ritmo-dispersion-ms", type=int, default=0, help="Jitter +/- en ms")
+    sp.add_argument("--resume-probe", action="store_true", help="Sondea estado del receptor para reanudar (mejor en LAN)")
     sp.set_defaults(func=cmd_send)
 
     sp = sub.add_parser("receive", help="Recibir recurso")
@@ -139,7 +160,7 @@ def cmd_send(args: argparse.Namespace) -> int:
         print("ERROR: recurso no accesible")
         return 2
 
-    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "send")}
+    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "send"), **_maybe_tcp_cfg(canal, args, "send"), **_maybe_icmp_cfg(canal, args, "send")}
 
     if args.cifrado.upper() != "NINGUNO":
         if not args.algoritmo:
@@ -175,7 +196,7 @@ def cmd_receive(args: argparse.Namespace) -> int:
     canal = Canal(tipo=_canal_from_str(args.canal), metodo=int(args.metodo))
     canal.validarConfiguracion()
 
-    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "receive")}
+    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "receive"), **_maybe_tcp_cfg(canal, args, "receive"), **_maybe_icmp_cfg(canal, args, "receive")}
 
     server = resolve_exfil_plugin(canal.tipo, canal.metodo, "server", args.plugins_dir)
     stream = server.run(cfg)
@@ -202,30 +223,6 @@ def cmd_receive(args: argparse.Namespace) -> int:
     print(json.dumps({"ok": True, "transferencia": t.id, "bytes": total, "out": args.out_file}, indent=2))
     return 0
 
-def cmd_scan(args: argparse.Namespace) -> int:  # type: ignore[no-redef]
-    reg = scan_plugins(args.plugins_dir)
-    print("EXFIL CLIENT:")
-    for (canal, metodo), cls in sorted(reg.exfil_client.items()):
-        print(f"  {canal}/{metodo} -> {cls.__name__}")
-    print("EXFIL SERVER:")
-    for (canal, metodo), cls in sorted(reg.exfil_server.items()):
-        print(f"  {canal}/{metodo} -> {cls.__name__}")
-    print("CRYPTO ENCRYPT:")
-    for (esq, alg), cls in sorted(reg.crypto_enc.items()):
-        print(f"  {esq}/{alg} -> {cls.__name__}")
-    print("CRYPTO DECRYPT:")
-    for (esq, alg), cls in sorted(reg.crypto_dec.items()):
-        print(f"  {esq}/{alg} -> {cls.__name__}")
-    return 0
-
-def cmd_check_file(args: argparse.Namespace) -> int:  # type: ignore[no-redef]
-    p = Path(args.recurso_ubicacion)
-    if not p.exists():
-        print("NO_EXISTE")
-        return 2
-    print(f"OK size={p.stat().st_size} path={p}")
-    return 0
-
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -233,3 +230,64 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _maybe_tcp_cfg(canal, args, modo: str):
+    try:
+        from tfg.core.enums import TipoCanal
+        if canal.tipo != TipoCanal.TCP:
+            return {}
+    except Exception:
+        return {}
+    host = args.host
+    port = args.puerto or 9000
+    base = {}
+    if modo == "send":
+        base = {"host": host or "127.0.0.1", "port": port}
+    else:
+        base = {"bind_host": host or "0.0.0.0", "bind_port": port}
+    if getattr(args, "auth_token", None):
+        base["auth_token"] = args.auth_token
+    if getattr(args, "ritmo_base_ms", None) is not None:
+        base["ritmo_base_ms"] = int(args.ritmo_base_ms)
+    if getattr(args, "ritmo_dispersion_ms", None) is not None:
+        base["ritmo_dispersion_ms"] = int(args.ritmo_dispersion_ms)
+    if getattr(args, "timeout_s", None) is not None:
+        base["timeout_s"] = int(args.timeout_s)
+    return base
+
+
+def _maybe_icmp_cfg(canal, args, modo: str):
+    try:
+        from tfg.core.enums import TipoCanal
+        if canal.tipo != TipoCanal.ICMP:
+            return {}
+    except Exception:
+        return {}
+    cfg = {}
+    # Para servidor: podemos filtrar por destino (--host). Para cliente: es el objetivo.
+    if getattr(args, "host", None):
+        cfg["host"] = args.host
+    if getattr(args, "auth_token", None):
+        cfg["auth_token"] = args.auth_token
+    if getattr(args, "iface", None):
+        cfg["iface"] = args.iface
+    if getattr(args, "ttl_base", None) is not None:
+        cfg["ttl_base"] = int(args.ttl_base)
+    if getattr(args, "ritmo_base_ms", None) is not None:
+        cfg["ritmo_base_ms"] = int(args.ritmo_base_ms)
+    if getattr(args, "ritmo_dispersion_ms", None) is not None:
+        cfg["ritmo_dispersion_ms"] = int(args.ritmo_dispersion_ms)
+    return cfg
+
+
+def _resolve_crypto_decryptor(scheme: str, algo: str):
+    from tfg.plugins.loader import resolve_crypto_plugin
+    dec = resolve_crypto_plugin(scheme=scheme, algorithm=algo, kind="decrypt", plugins_dir="plugins")
+    if dec is None:
+        raise RuntimeError(f"decryptor no disponible: {scheme}/{algo}")
+    def init(params):
+        return dec.init(params or {})
+    def decrypt_iter(meta, stream):
+        return dec.decrypt_iter(meta, stream)
+    return (init, decrypt_iter)
