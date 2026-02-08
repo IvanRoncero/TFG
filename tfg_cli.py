@@ -183,7 +183,8 @@ def cmd_send(args: argparse.Namespace) -> int:
     else:
         payload_iter = recurso.iter_chunks(args.fragment_size)
 
-    client = resolve_exfil_plugin(canal.tipo, canal.metodo, "client", args.plugins_dir)
+    # FIX: usar nombre del Enum (p.ej. "HTTP") para resolver plugins
+    client = resolve_exfil_plugin(canal.tipo.name, canal.metodo, "client", args.plugins_dir)
     res = client.run(cfg, payload_iter)
     t.finalizarComoCompletada()
     print(json.dumps({"ok": True, "transferencia": t.id, "resumen": res}, indent=2))
@@ -198,7 +199,8 @@ def cmd_receive(args: argparse.Namespace) -> int:
 
     cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "receive"), **_maybe_tcp_cfg(canal, args, "receive"), **_maybe_icmp_cfg(canal, args, "receive")}
 
-    server = resolve_exfil_plugin(canal.tipo, canal.metodo, "server", args.plugins_dir)
+    # FIX: usar nombre del Enum (p.ej. "HTTP") para resolver plugins
+    server = resolve_exfil_plugin(canal.tipo.name, canal.metodo, "server", args.plugins_dir)
     stream = server.run(cfg)
 
     if args.cifrado.upper() != "NINGUNO":
@@ -227,9 +229,6 @@ def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)
-
-if __name__ == "__main__":
-    raise SystemExit(main())
 
 
 def _maybe_tcp_cfg(canal, args, modo: str):
@@ -291,3 +290,6 @@ def _resolve_crypto_decryptor(scheme: str, algo: str):
     def decrypt_iter(meta, stream):
         return dec.decrypt_iter(meta, stream)
     return (init, decrypt_iter)
+
+if __name__ == "__main__":
+    raise SystemExit(main())
