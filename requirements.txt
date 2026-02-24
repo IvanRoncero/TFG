@@ -6,3 +6,4 @@ dnslib>=0.9.25
 
 Abrir puertos router
 
+Install npcap

