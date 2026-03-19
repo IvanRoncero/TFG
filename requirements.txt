@@ -1,0 +1,9 @@
+cryptography>=41.0.0
+scapy>=2.5.0
+paramiko>=3.4.0
+dnslib>=0.9.25
+
+
+Abrir puertos router
+
+Install npcap
