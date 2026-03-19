@@ -14,6 +14,13 @@ def _connect_ftp(config: Dict[str, Any]) -> FTP:
     user = config.get("user") or "anonymous"
     password = config.get("password") or "anonymous@"
 
+    def _login_hint(msg: str) -> RuntimeError:
+        return RuntimeError(
+            "FTP login failed. Verify FileZilla user is enabled, password is set/saved, "
+            "and authentication mode is not 'Use system credentials'. "
+            f"Server response: {msg!r}"
+        )
+
     ftp = FTP()
     ftp.connect(host, port, timeout=30)
     try:
@@ -22,13 +29,19 @@ def _connect_ftp(config: Dict[str, Any]) -> FTP:
     except error_perm as e:
         msg = str(e).lower()
         ftp.close()
+        if "login" in msg or "530" in msg or "disabled" in msg:
+            raise _login_hint(str(e)) from e
         if "auth" not in msg:
             raise
 
     ftps = FTP_TLS()
     ftps.connect(host, port, timeout=30)
     ftps.auth()
-    ftps.login(user=user, passwd=password)
+    try:
+        ftps.login(user=user, passwd=password)
+    except error_perm as e:
+        ftps.close()
+        raise _login_hint(str(e)) from e
     ftps.prot_p()
     return ftps
 

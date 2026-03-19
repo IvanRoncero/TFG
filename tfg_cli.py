@@ -102,6 +102,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("send", help="Enviar recurso")
     for arg, kw in common.items():
         sp.add_argument(f"--{arg}", **kw)
+    sp.add_argument("--iface", required=False, help="Interfaz de captura/envío RAW (ej. \\Device\\NPF_{GUID})")
+    sp.add_argument("--ttl-base", type=int, required=False, help="Base TTL para ICMP método 3")
+    sp.add_argument("--timeout-s", type=int, required=False, help="Timeout de recepción (plugins que lo soporten)")
     sp.add_argument("--recurso-tipo", required=True, choices=[e.name for e in TipoRecurso])
     sp.add_argument("--recurso-ubicacion", required=True)
     sp.add_argument("--fragment-size", type=int, default=1024)
@@ -117,6 +120,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("receive", help="Recibir recurso")
     for arg, kw in common.items():
         sp.add_argument(f"--{arg}", **kw)
+    sp.add_argument("--iface", required=False, help="Interfaz de captura/envío RAW (ej. \\Device\\NPF_{GUID})")
+    sp.add_argument("--ttl-base", type=int, required=False, help="Base TTL para ICMP método 3")
+    sp.add_argument("--timeout-s", type=int, required=False, help="Timeout de recepción (plugins que lo soporten)")
     sp.add_argument("--out-file", required=True, help="Ruta de salida del reconstruido")
     sp.add_argument("--crypto-meta-in", required=False, help="Meta CRYPTO (JSON) para descifrar")
     sp.set_defaults(func=cmd_receive)
@@ -253,6 +259,8 @@ def _maybe_tcp_cfg(canal, args, modo: str):
         base["ritmo_dispersion_ms"] = int(args.ritmo_dispersion_ms)
     if getattr(args, "timeout_s", None) is not None:
         base["timeout_s"] = int(args.timeout_s)
+    if getattr(args, "iface", None):
+        base["iface"] = args.iface
     return base
 
 

