@@ -101,24 +101,15 @@ python tfg_cli.py --plugins-dir plugins send --transfer-id RXHTTP1S --canal HTTP
 ---------------------
 HTTP Método 2 (base)
 ---------------------
-RECEPTOR (arranca primero):
+RECEPTOR:
 
 
 cd c:/TFG-REPO && python tfg_cli.py --plugins-dir plugins receive --transfer-id RXHTTP2 --canal HTTP --metodo 2 --host 0.0.0.0 --puerto 8080 --ruta /upload --out-file ./out_http2.bin --cifrado NINGUNO
+
 EMISOR:
 
 
 cd c:/TFG-REPO && python tfg_cli.py --plugins-dir plugins send --transfer-id RXHTTP2 --canal HTTP --metodo 2 --host 192.168.1.34 --puerto 8080 --ruta /upload --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado NINGUNO
-Y con cifrado asimétrico (RSA_OAEP), que es el que define el fichero para este método:
-
-RECEPTOR:
-
-
-cd c:/TFG-REPO && python tfg_cli.py --plugins-dir plugins receive --transfer-id RXHTTP2A --canal HTTP --metodo 2 --host 0.0.0.0 --puerto 8080 --ruta /upload --out-file ./out_http2_asym.bin --cifrado ASIMETRICO --algoritmo RSA_OAEP --clave-privada ./rsa_private.pem --crypto-meta-in ./meta_http2_asym.json
-EMISOR:
-
-
-cd c:/TFG-REPO && python tfg_cli.py --plugins-dir plugins send --transfer-id RXHTTP2A --canal HTTP --metodo 2 --host 192.168.1.34 --puerto 8080 --ruta /upload --recurso-tipo ARCHIVO --recurso-ubicacion ./setup.txt --cifrado ASIMETRICO --algoritmo RSA_OAEP --clave-publica ./rsa_public.pem --crypto-meta-out ./meta_http2_asym.json
 
 ====================================================================
 5) TCP (métodos 1, 2, 3)

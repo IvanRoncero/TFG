@@ -103,8 +103,12 @@ def build_parser() -> argparse.ArgumentParser:
     for arg, kw in common.items():
         sp.add_argument(f"--{arg}", **kw)
     sp.add_argument("--iface", required=False, help="Interfaz de captura/envío RAW (ej. \\Device\\NPF_{GUID})")
+    sp.add_argument("--root-domain", required=False, help="Dominio raíz para exfil DNS (ej. exfil.local)")
     sp.add_argument("--ttl-base", type=int, required=False, help="Base TTL para ICMP método 3")
     sp.add_argument("--timeout-s", type=int, required=False, help="Timeout de recepción (plugins que lo soporten)")
+    sp.add_argument("--ssh-user", required=False, help="Usuario SSH/SFTP")
+    sp.add_argument("--ssh-pass", required=False, help="Contraseña SSH/SFTP")
+    sp.add_argument("--remote-dir", required=False, default=".", help="Directorio remoto SSH/SFTP")
     sp.add_argument("--recurso-tipo", required=True, choices=[e.name for e in TipoRecurso])
     sp.add_argument("--recurso-ubicacion", required=True)
     sp.add_argument("--fragment-size", type=int, default=1024)
@@ -121,8 +125,12 @@ def build_parser() -> argparse.ArgumentParser:
     for arg, kw in common.items():
         sp.add_argument(f"--{arg}", **kw)
     sp.add_argument("--iface", required=False, help="Interfaz de captura/envío RAW (ej. \\Device\\NPF_{GUID})")
+    sp.add_argument("--root-domain", required=False, help="Dominio raíz para exfil DNS (ej. exfil.local)")
     sp.add_argument("--ttl-base", type=int, required=False, help="Base TTL para ICMP método 3")
     sp.add_argument("--timeout-s", type=int, required=False, help="Timeout de recepción (plugins que lo soporten)")
+    sp.add_argument("--ssh-user", required=False, help="Usuario SSH/SFTP")
+    sp.add_argument("--ssh-pass", required=False, help="Contraseña SSH/SFTP")
+    sp.add_argument("--remote-dir", required=False, default=".", help="Directorio remoto SSH/SFTP")
     sp.add_argument("--out-file", required=True, help="Ruta de salida del reconstruido")
     sp.add_argument("--crypto-meta-in", required=False, help="Meta CRYPTO (JSON) para descifrar")
     sp.set_defaults(func=cmd_receive)
@@ -166,7 +174,7 @@ def cmd_send(args: argparse.Namespace) -> int:
         print("ERROR: recurso no accesible")
         return 2
 
-    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "send"), **_maybe_tcp_cfg(canal, args, "send"), **_maybe_icmp_cfg(canal, args, "send")}
+    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "send"), **_maybe_tcp_cfg(canal, args, "send"), **_maybe_icmp_cfg(canal, args, "send"), **_maybe_dns_cfg(canal, args, "send"), **_maybe_ssh_cfg(canal, args, "send")}
 
     if args.cifrado.upper() != "NINGUNO":
         if not args.algoritmo:
@@ -203,7 +211,7 @@ def cmd_receive(args: argparse.Namespace) -> int:
     canal = Canal(tipo=_canal_from_str(args.canal), metodo=int(args.metodo))
     canal.validarConfiguracion()
 
-    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "receive"), **_maybe_tcp_cfg(canal, args, "receive"), **_maybe_icmp_cfg(canal, args, "receive")}
+    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "receive"), **_maybe_tcp_cfg(canal, args, "receive"), **_maybe_icmp_cfg(canal, args, "receive"), **_maybe_dns_cfg(canal, args, "receive"), **_maybe_ssh_cfg(canal, args, "receive")}
 
     # FIX: usar nombre del Enum (p.ej. "HTTP") para resolver plugins
     server = resolve_exfil_plugin(canal.tipo.name, canal.metodo, "server", args.plugins_dir)
@@ -286,6 +294,41 @@ def _maybe_icmp_cfg(canal, args, modo: str):
     if getattr(args, "ritmo_dispersion_ms", None) is not None:
         cfg["ritmo_dispersion_ms"] = int(args.ritmo_dispersion_ms)
     return cfg
+
+
+def _maybe_ssh_cfg(canal, args, modo: str):
+    try:
+        from tfg.core.enums import TipoCanal
+        if canal.tipo != TipoCanal.SSH:
+            return {}
+    except Exception:
+        return {}
+    base = {
+        "host":       getattr(args, "host", None) or "127.0.0.1",
+        "port":       int(getattr(args, "puerto", None) or 22),
+        "user":       getattr(args, "ssh_user", None) or "",
+        "password":   getattr(args, "ssh_pass", None),
+        "remote_dir": getattr(args, "remote_dir", None) or ".",
+    }
+    if getattr(args, "timeout_s", None) is not None:
+        base["timeout_s"] = int(args.timeout_s)
+    return base
+
+
+def _maybe_dns_cfg(canal, args, modo: str):
+    try:
+        from tfg.core.enums import TipoCanal
+        if canal.tipo != TipoCanal.DNS:
+            return {}
+    except Exception:
+        return {}
+    host        = args.host
+    port        = args.puerto or 53
+    root_domain = getattr(args, "root_domain", None) or "exfil.local"
+    if modo == "send":
+        return {"host": host or "127.0.0.1", "port": port, "root_domain": root_domain}
+    else:
+        return {"bind_host": host or "0.0.0.0", "bind_port": port}
 
 
 def _resolve_crypto_decryptor(scheme: str, algo: str):
