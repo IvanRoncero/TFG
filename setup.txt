@@ -58,9 +58,9 @@ Configura:
 
 Dominio local (p.ej. lan.local) y una cuenta user@lan.local.
 
-SMTP escuchando 587/TCP (submission con STARTTLS).
+SMTP escuchando 587/TCP.
 
-IMAP escuchando 993/TCP (TLS).
+IMAP escuchando 993/TCP.
 
 Firewall:
 
