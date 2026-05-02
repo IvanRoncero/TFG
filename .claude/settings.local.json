@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where tshark *)",
+      "Bash(where \"C:\\\\Program Files\\\\Wireshark\\\\tshark.exe\")",
+      "Bash(python -c ' *)",
+      "Bash(\"C:\\\\Program Files\\\\Wireshark\\\\tshark.exe\" -D)",
+      "Bash(\"C:\\\\Program Files\\\\Wireshark\\\\tshark.exe\" -i \"\\\\Device\\\\NPF_Loopback\" -a duration:8 -w \"C:\\\\Temp\\\\cap_http.pcapng\" -q)",
+      "Bash(mkdir -p /c/Temp)",
+      "Read(//c//**)"
+    ]
+  }
+}

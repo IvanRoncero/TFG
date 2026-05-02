@@ -108,7 +108,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--timeout-s", type=int, required=False, help="Timeout de recepción (plugins que lo soporten)")
     sp.add_argument("--ssh-user", required=False, help="Usuario SSH/SFTP")
     sp.add_argument("--ssh-pass", required=False, help="Contraseña SSH/SFTP")
-    sp.add_argument("--remote-dir", required=False, default=".", help="Directorio remoto SSH/SFTP")
+    sp.add_argument("--remote-dir", required=False, default=".", help="Directorio remoto SSH/SFTP o raíz FTP")
+    sp.add_argument("--ftp-user", required=False, help="Usuario FTP")
+    sp.add_argument("--ftp-pass", required=False, help="Contraseña FTP")
+    sp.add_argument("--smtp-host", required=False, help="Host SMTP (emisor)")
+    sp.add_argument("--smtp-port", type=int, required=False, help="Puerto SMTP (default 587)")
+    sp.add_argument("--smtp-user", required=False, help="Usuario SMTP")
+    sp.add_argument("--smtp-pass", required=False, help="Contraseña SMTP")
+    sp.add_argument("--smtp-to", required=False, help="Destinatario email")
+    sp.add_argument("--smtp-from", required=False, help="Remitente email")
     sp.add_argument("--recurso-tipo", required=True, choices=[e.name for e in TipoRecurso])
     sp.add_argument("--recurso-ubicacion", required=True)
     sp.add_argument("--fragment-size", type=int, default=1024)
@@ -130,7 +138,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--timeout-s", type=int, required=False, help="Timeout de recepción (plugins que lo soporten)")
     sp.add_argument("--ssh-user", required=False, help="Usuario SSH/SFTP")
     sp.add_argument("--ssh-pass", required=False, help="Contraseña SSH/SFTP")
-    sp.add_argument("--remote-dir", required=False, default=".", help="Directorio remoto SSH/SFTP")
+    sp.add_argument("--remote-dir", required=False, default=".", help="Directorio remoto SSH/SFTP o raíz FTP")
+    sp.add_argument("--ftp-user", required=False, help="Usuario FTP")
+    sp.add_argument("--ftp-pass", required=False, help="Contraseña FTP")
+    sp.add_argument("--imap-host", required=False, help="Host IMAP (receptor SMTP)")
+    sp.add_argument("--imap-port", type=int, required=False, help="Puerto IMAP (default 993)")
+    sp.add_argument("--imap-user", required=False, help="Usuario IMAP")
+    sp.add_argument("--imap-pass", required=False, help="Contraseña IMAP")
+    sp.add_argument("--imap-mailbox", required=False, default="INBOX", help="Buzón IMAP (default INBOX)")
     sp.add_argument("--out-file", required=True, help="Ruta de salida del reconstruido")
     sp.add_argument("--crypto-meta-in", required=False, help="Meta CRYPTO (JSON) para descifrar")
     sp.set_defaults(func=cmd_receive)
@@ -174,7 +189,7 @@ def cmd_send(args: argparse.Namespace) -> int:
         print("ERROR: recurso no accesible")
         return 2
 
-    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "send"), **_maybe_tcp_cfg(canal, args, "send"), **_maybe_icmp_cfg(canal, args, "send"), **_maybe_dns_cfg(canal, args, "send"), **_maybe_ssh_cfg(canal, args, "send")}
+    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "send"), **_maybe_tcp_cfg(canal, args, "send"), **_maybe_icmp_cfg(canal, args, "send"), **_maybe_dns_cfg(canal, args, "send"), **_maybe_ssh_cfg(canal, args, "send"), **_maybe_ftp_cfg(canal, args), **_maybe_smtp_cfg(canal, args, "send")}
 
     if args.cifrado.upper() != "NINGUNO":
         if not args.algoritmo:
@@ -211,7 +226,7 @@ def cmd_receive(args: argparse.Namespace) -> int:
     canal = Canal(tipo=_canal_from_str(args.canal), metodo=int(args.metodo))
     canal.validarConfiguracion()
 
-    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "receive"), **_maybe_tcp_cfg(canal, args, "receive"), **_maybe_icmp_cfg(canal, args, "receive"), **_maybe_dns_cfg(canal, args, "receive"), **_maybe_ssh_cfg(canal, args, "receive")}
+    cfg = {"exfil_id": args.transfer_id, **_maybe_http_cfg(canal, args, "receive"), **_maybe_tcp_cfg(canal, args, "receive"), **_maybe_icmp_cfg(canal, args, "receive"), **_maybe_dns_cfg(canal, args, "receive"), **_maybe_ssh_cfg(canal, args, "receive"), **_maybe_ftp_cfg(canal, args), **_maybe_smtp_cfg(canal, args, "receive")}
 
     # FIX: usar nombre del Enum (p.ej. "HTTP") para resolver plugins
     server = resolve_exfil_plugin(canal.tipo.name, canal.metodo, "server", args.plugins_dir)
@@ -294,6 +309,51 @@ def _maybe_icmp_cfg(canal, args, modo: str):
     if getattr(args, "ritmo_dispersion_ms", None) is not None:
         cfg["ritmo_dispersion_ms"] = int(args.ritmo_dispersion_ms)
     return cfg
+
+
+def _maybe_smtp_cfg(canal, args, modo: str):
+    try:
+        from tfg.core.enums import TipoCanal
+        if canal.tipo != TipoCanal.SMTP:
+            return {}
+    except Exception:
+        return {}
+    if modo == "send":
+        return {
+            "smtp_host": getattr(args, "smtp_host", None) or "",
+            "smtp_port": int(getattr(args, "smtp_port", None) or 587),
+            "smtp_user": getattr(args, "smtp_user", None) or "",
+            "smtp_pass": getattr(args, "smtp_pass", None) or "",
+            "to":        getattr(args, "smtp_to", None) or "",
+            "from":      getattr(args, "smtp_from", None) or "",
+            "starttls":  True,
+        }
+    else:
+        return {
+            "imap_host":     getattr(args, "imap_host", None) or "",
+            "imap_port":     int(getattr(args, "imap_port", None) or 993),
+            "imap_user":     getattr(args, "imap_user", None) or "",
+            "imap_pass":     getattr(args, "imap_pass", None) or "",
+            "imap_ssl":      True,
+            "imap_starttls": False,
+            "mailbox":       getattr(args, "imap_mailbox", None) or "INBOX",
+        }
+
+
+def _maybe_ftp_cfg(canal, args):
+    try:
+        from tfg.core.enums import TipoCanal
+        if canal.tipo != TipoCanal.FTP:
+            return {}
+    except Exception:
+        return {}
+    return {
+        "host":     getattr(args, "host", None) or "127.0.0.1",
+        "port":     int(getattr(args, "puerto", None) or 21),
+        "user":     getattr(args, "ftp_user", None) or "anonymous",
+        "password": getattr(args, "ftp_pass", None) or "anonymous@",
+        "root":     getattr(args, "remote_dir", None) or "/",
+    }
 
 
 def _maybe_ssh_cfg(canal, args, modo: str):
