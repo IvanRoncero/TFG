@@ -61,12 +61,11 @@ class _Registry:
         rel = file_path.relative_to(repo_root).with_suffix("")
         mod_name = ".".join(rel.parts)
 
-        # Evita recarga duplicada
-        if mod_name in sys.modules:
-            return
-
         try:
-            mod = importlib.import_module(mod_name)
+            if mod_name in sys.modules:
+                mod = sys.modules[mod_name]
+            else:
+                mod = importlib.import_module(mod_name)
             self.register_module(mod)
         except Exception as e:
             self.load_errors.append(f"{mod_name}: {type(e).__name__}: {e}")

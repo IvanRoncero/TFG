@@ -43,7 +43,14 @@ class RawSession:
                     return None
                 self.stage = "eid_len"; self.expected = 1; self.buf.clear()
         elif self.stage == "eid_len":
-            self.eid_len = b; self.stage = "eid"; self.expected = self.eid_len; self.buf.clear()
+            self.eid_len = b; self.expected = self.eid_len; self.buf.clear()
+            if self.eid_len == 0:
+                if b"" != self.target_eid:
+                    self.stage = "magic"; self.expected = len(MAGIC)
+                    return None
+                self.stage = "tok_len"; self.expected = 1
+            else:
+                self.stage = "eid"
         elif self.stage == "eid":
             self.buf.append(b)
             if len(self.buf) == self.expected:
@@ -52,7 +59,14 @@ class RawSession:
                     return None
                 self.stage = "tok_len"; self.expected = 1; self.buf.clear()
         elif self.stage == "tok_len":
-            self.tok_len = b; self.stage = "tok"; self.expected = self.tok_len; self.buf.clear()
+            self.tok_len = b; self.expected = self.tok_len; self.buf.clear()
+            if self.tok_len == 0:
+                if b"" != self.target_tok:
+                    self.stage = "magic"; self.expected = len(MAGIC)
+                    return None
+                self.stage = "body"
+            else:
+                self.stage = "tok"
         elif self.stage == "tok":
             self.buf.append(b)
             if len(self.buf) == self.expected:
